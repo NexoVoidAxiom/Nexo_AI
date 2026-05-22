@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Entornos locales
+.env
+.env.*
+venv/
+.venv/
+env/
+
+# Datos, caches y salidas generadas
+data/*.db
+data/*.sqlite
+uploads/
+generated_projects/
+*.log
+ollama/*.log
+
+# Secretos y configuracion local
+cloudflare_token.txt
+config.yml
+*.pem
+*.key
+
+# Binarios locales grandes
+*.exe
+
+# IDE / sistema
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini

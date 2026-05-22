@@ -1,0 +1,1767 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VOID AXIOM — Canal A2A</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:          #080c10;
+  --bg2:         #0d1219;
+  --bg3:         #111820;
+  --border:      #1e2d3d;
+  --border2:     #243446;
+  --text:        #c8d8e8;
+  --dim:         #5a7a9a;
+  --accent:      #00d4ff;
+  --accent-dim:  #007a99;
+  --aerys:       #ffd700;
+  --aerys-dim:   #9a8200;
+  --system:      #3a4a5a;
+  --interrupt:   #ff6b35;
+  --reb:         #ff4757;
+  --arch:        #2fa8e0;
+  --coda:        #27ae60;
+  --font-mono:   'Share Tech Mono', monospace;
+  --font-ui:     'Rajdhani', sans-serif;
+  --font-code:   'IBM Plex Mono', monospace;
+  --glow-reb:    0 0 12px rgba(255,71,87,0.4);
+  --glow-arch:   0 0 12px rgba(47,168,224,0.4);
+  --glow-coda:   0 0 12px rgba(39,174,96,0.4);
+  --glow-aerys:  0 0 16px rgba(255,215,0,0.5);
+  --glow-accent: 0 0 12px rgba(0,212,255,0.3);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  overflow: hidden;
+}
+
+/* ── Scanlines effect ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* ══════════════════════════════════
+   LAYOUT PRINCIPAL
+══════════════════════════════════ */
+
+.layout {
+  display: grid;
+  grid-template-columns: 260px 1fr 300px;
+  grid-template-rows: 56px 1fr;
+  height: 100vh;
+  gap: 0;
+}
+
+/* ── Header bar ── */
+.topbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 20px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  letter-spacing: 3px;
+  color: var(--accent);
+  text-shadow: var(--glow-accent);
+}
+
+.topbar-brand .bracket {
+  color: var(--accent-dim);
+  font-size: 18px;
+}
+
+.logo-pulse {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: var(--glow-accent);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.7); }
+}
+
+.topbar-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--dim);
+  font-family: var(--font-mono);
+}
+
+.status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--dim);
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.status-dot.active   { background: #2ecc71; box-shadow: 0 0 6px rgba(46,204,113,0.6); }
+.status-dot.paused   { background: #f39c12; box-shadow: 0 0 6px rgba(243,156,18,0.6); }
+.status-dot.stopped  { background: var(--reb); box-shadow: var(--glow-reb); }
+
+.topbar-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nav-link {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--dim);
+  text-decoration: none;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  transition: all 0.2s;
+  letter-spacing: 1px;
+}
+.nav-link:hover { color: var(--accent); border-color: var(--accent-dim); }
+
+.aerys-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--aerys);
+  background: rgba(255,215,0,0.08);
+  border: 1px solid rgba(255,215,0,0.3);
+  padding: 3px 10px;
+  border-radius: 4px;
+  text-shadow: 0 0 6px rgba(255,215,0,0.4);
+  letter-spacing: 2px;
+  display: none;
+}
+.aerys-badge.visible { display: block; }
+.private-output {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid rgba(255,215,0,0.25);
+  background: rgba(255,215,0,0.05);
+  color: var(--text);
+  font-family: var(--font-code);
+  font-size: 11px;
+  line-height: 1.45;
+  max-height: 240px;
+  overflow: auto;
+  white-space: normal;
+  border-radius: 4px;
+}
+.private-output.open { display: flex; }
+.private-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.private-msg.user { align-items: flex-end; }
+.private-msg.agent { align-items: flex-start; }
+.private-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  color: var(--dim);
+  letter-spacing: 1px;
+}
+.private-bubble {
+  max-width: 100%;
+  padding: 7px 9px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: rgba(8,12,16,0.68);
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.private-msg.user .private-bubble {
+  border-color: rgba(255,215,0,0.28);
+  background: rgba(255,215,0,0.08);
+  color: var(--aerys);
+}
+.private-msg.loading .private-bubble {
+  color: var(--dim);
+  font-style: italic;
+}
+.private-msg.error .private-bubble {
+  border-color: rgba(255,71,87,0.35);
+  color: var(--reb);
+}
+
+/* ══════════════════════════════════
+   PANEL IZQUIERDO — Agentes
+══════════════════════════════════ */
+
+.sidebar-left {
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-section-title {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 3px;
+  color: var(--dim);
+  padding: 14px 16px 8px;
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+}
+
+.agent-card {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: default;
+  transition: background 0.15s;
+  position: relative;
+}
+.agent-card:hover { background: rgba(255,255,255,0.02); }
+
+.agent-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.agent-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.agent-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.agent-model {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--dim);
+  background: var(--bg3);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+
+.agent-role {
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+}
+
+.agent-status-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.agent-state-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.04);
+  color: var(--dim);
+  border: 1px solid var(--border);
+  letter-spacing: 1px;
+  transition: all 0.3s;
+}
+.agent-state-badge.thinking {
+  animation: thinking-flash 0.8s ease-in-out infinite alternate;
+}
+
+.thinking-dots {
+  display: none;
+  gap: 3px;
+  align-items: center;
+}
+.thinking-dots.active { display: flex; }
+.thinking-dots span {
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: dot-bounce 1.2s ease-in-out infinite;
+}
+.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes dot-bounce {
+  0%, 100% { transform: translateY(0); opacity: 0.4; }
+  50%       { transform: translateY(-4px); opacity: 1; }
+}
+
+@keyframes thinking-flash {
+  from { opacity: 0.5; }
+  to   { opacity: 1; }
+}
+
+/* Mood indicator (only for REBx3) */
+.mood-bar {
+  height: 2px;
+  background: linear-gradient(90deg, #2ecc71, #f39c12, #ff4757);
+  border-radius: 1px;
+  margin-top: 8px;
+  position: relative;
+  overflow: hidden;
+}
+.mood-indicator {
+  position: absolute;
+  top: -2px;
+  width: 4px; height: 6px;
+  background: white;
+  border-radius: 1px;
+  transition: left 1s ease;
+}
+
+/* Sidebar session info */
+.sidebar-session {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+}
+
+.session-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 2px;
+  margin-bottom: 6px;
+}
+
+.session-task-preview {
+  font-size: 11px;
+  color: var(--text);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.msg-counter {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--accent);
+  margin-top: 6px;
+}
+
+/* ══════════════════════════════════
+   CENTRO — Chat principal
+══════════════════════════════════ */
+
+.chat-main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+  position: relative;
+}
+
+/* Background grid */
+.chat-main::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0,212,255,0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0,212,255,0.015) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+}
+
+.chat-header {
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(13,18,25,0.8);
+  backdrop-filter: blur(4px);
+  flex-shrink: 0;
+}
+
+.chat-header-title {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 3px;
+  color: var(--dim);
+}
+
+.channel-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  background: rgba(0,212,255,0.06);
+  border: 1px solid rgba(0,212,255,0.15);
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+.conn-status {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--dim);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* Messages container */
+.messages-wrap {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 0;
+  scroll-behavior: smooth;
+}
+
+.messages-wrap::-webkit-scrollbar { width: 4px; }
+.messages-wrap::-webkit-scrollbar-track { background: transparent; }
+.messages-wrap::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+/* Individual messages */
+.msg {
+  display: flex;
+  gap: 12px;
+  padding: 8px 20px;
+  transition: background 0.15s;
+  animation: msg-in 0.25s ease-out;
+  border-left: 2px solid transparent;
+}
+.msg:hover { background: rgba(255,255,255,0.015); }
+
+@keyframes msg-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.msg.type-system {
+  border-left-color: var(--system);
+  background: rgba(58,74,90,0.08);
+}
+.msg.type-aerys {
+  border-left-color: var(--aerys);
+  background: rgba(255,215,0,0.04);
+}
+.msg.type-interrupt {
+  border-left-color: var(--interrupt);
+  background: rgba(255,107,53,0.04);
+}
+
+.msg-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  font-family: var(--font-mono);
+  font-weight: bold;
+  font-size: 10px;
+}
+
+.msg-body { flex: 1; min-width: 0; }
+
+.msg-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.msg-author {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 1px;
+}
+
+.msg-tag {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  padding: 1px 5px;
+  border-radius: 2px;
+  letter-spacing: 1px;
+  opacity: 0.7;
+}
+
+.msg-time {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--dim);
+  opacity: 0.6;
+  margin-left: auto;
+}
+
+.msg-content {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+  word-break: break-word;
+}
+
+/* Code blocks inside messages */
+.msg-content pre,
+.msg-content code {
+  font-family: var(--font-code);
+  font-size: 11px;
+}
+.msg-content pre {
+  background: rgba(0,0,0,0.4);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 14px;
+  overflow-x: auto;
+  margin: 6px 0;
+}
+.msg-content code {
+  background: rgba(0,0,0,0.3);
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--accent);
+}
+
+/* Thinking indicator row */
+.thinking-row {
+  padding: 6px 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  opacity: 0;
+  transition: opacity 0.3s;
+  min-height: 28px;
+}
+.thinking-row.active { opacity: 1; }
+.thinking-agent-name {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+}
+
+/* ══════════════════════════════════
+   PANEL DERECHO — Control de Aerys
+══════════════════════════════════ */
+
+.sidebar-right {
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Supervisor overlay */
+.supervisor-mode-banner {
+  background: rgba(0,212,255,0.06);
+  border-bottom: 1px solid rgba(0,212,255,0.15);
+  padding: 8px 14px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--accent);
+  letter-spacing: 2px;
+  text-align: center;
+  display: none;
+}
+.supervisor-mode-banner.active { display: block; }
+
+/* Aerys locked panel (for non-admins) */
+.aerys-locked {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px;
+  text-align: center;
+}
+
+.lock-icon {
+  font-size: 36px;
+  opacity: 0.3;
+}
+
+.lock-text {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--dim);
+  letter-spacing: 2px;
+  line-height: 1.8;
+}
+
+/* Aerys admin panel */
+.aerys-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.aerys-panel .panel-section {
+  flex-shrink: 0;
+}
+
+.panel-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--aerys);
+  letter-spacing: 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,215,0,0.04);
+  text-shadow: 0 0 6px rgba(255,215,0,0.3);
+}
+
+.panel-section {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-title {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: var(--dim);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+}
+
+/* Botón INTERVENIR */
+.btn-intervene {
+  width: 100%;
+  padding: 12px;
+  background: transparent;
+  border: 2px solid var(--aerys);
+  color: var(--aerys);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  letter-spacing: 4px;
+  cursor: pointer;
+  border-radius: 4px;
+  text-shadow: 0 0 8px rgba(255,215,0,0.4);
+  box-shadow: 0 0 12px rgba(255,215,0,0.1), inset 0 0 12px rgba(255,215,0,0.03);
+  transition: all 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-intervene::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(255,215,0,0.1) 0%, transparent 60%);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.btn-intervene:hover {
+  background: rgba(255,215,0,0.08);
+  box-shadow: 0 0 20px rgba(255,215,0,0.25), inset 0 0 16px rgba(255,215,0,0.06);
+}
+.btn-intervene:hover::before { opacity: 1; }
+.btn-intervene:active { transform: scale(0.98); }
+
+.btn-intervene.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  text-shadow: var(--glow-accent);
+  box-shadow: var(--glow-accent);
+}
+
+/* Intervention input */
+.intervention-form {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  animation: slide-down 0.2s ease-out;
+}
+.intervention-form.open { display: flex; }
+
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.intervention-input {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  resize: vertical;
+  min-height: 60px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.intervention-input:focus { border-color: var(--aerys); }
+
+.btn-send-intervention {
+  background: var(--aerys);
+  border: none;
+  color: #000;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  padding: 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: opacity 0.2s;
+}
+.btn-send-intervention:hover { opacity: 0.85; }
+.btn-send-intervention:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Session controls */
+.control-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.btn-ctrl {
+  padding: 7px;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--dim);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 1px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+.btn-ctrl:hover { border-color: var(--text); color: var(--text); }
+.btn-ctrl.danger:hover { border-color: var(--reb); color: var(--reb); }
+
+/* Task input */
+.task-textarea {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  resize: vertical;
+  min-height: 80px;
+  outline: none;
+  transition: border-color 0.2s;
+  margin-bottom: 8px;
+}
+.task-textarea:focus { border-color: var(--accent); }
+
+.btn-launch {
+  width: 100%;
+  padding: 9px;
+  background: rgba(0,212,255,0.08);
+  border: 1px solid var(--accent-dim);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+.btn-launch:hover {
+  background: rgba(0,212,255,0.14);
+  box-shadow: var(--glow-accent);
+}
+.btn-launch:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Sessions history */
+.sessions-list {
+  flex: 0 0 auto;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 0;
+}
+.sessions-list::-webkit-scrollbar { width: 3px; }
+.sessions-list::-webkit-scrollbar-thumb { background: var(--border); }
+
+.session-item {
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.session-item:hover { background: rgba(255,255,255,0.02); }
+
+.session-item-id {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--dim);
+  margin-bottom: 2px;
+}
+
+.session-item-task {
+  font-size: 11px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-item-badge {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  margin-top: 3px;
+  letter-spacing: 1px;
+}
+.badge-active  { background: rgba(46,204,113,0.15); color: #2ecc71; }
+.badge-stopped { background: rgba(255,71,87,0.15);  color: var(--reb); }
+
+/* ══════════════════════════════════
+   ESTADO VACÍO
+══════════════════════════════════ */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 16px;
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.empty-hex {
+  font-size: 48px;
+  filter: grayscale(1);
+}
+
+.empty-title {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 4px;
+  color: var(--dim);
+}
+
+.empty-sub {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--dim);
+  opacity: 0.6;
+}
+
+/* ══════════════════════════════════
+   MISC
+══════════════════════════════════ */
+
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
+
+/* Toast notification */
+.toast {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 10px 16px;
+  border-radius: 6px;
+  z-index: 1000;
+  transform: translateY(20px);
+  opacity: 0;
+  transition: all 0.3s;
+  pointer-events: none;
+}
+.toast.show { transform: translateY(0); opacity: 1; }
+.toast.aerys { border-color: var(--aerys); color: var(--aerys); }
+.toast.error { border-color: var(--reb); color: var(--reb); }
+
+/* Scrollbar for message area */
+@keyframes scroll-indicator {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Connection error banner */
+.conn-error {
+  background: rgba(255,71,87,0.08);
+  border-bottom: 1px solid rgba(255,71,87,0.2);
+  padding: 6px 20px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--reb);
+  display: none;
+  align-items: center;
+  gap: 8px;
+}
+.conn-error.show { display: flex; }
+</style>
+</head>
+<body>
+
+<div class="layout">
+
+  <!-- ══ TOPBAR ══════════════════════════════════════════════════════════ -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <div class="bracket">[</div>
+      <div class="logo-pulse"></div>
+      VOID&nbsp;AXIOM
+      <div class="bracket">]</div>
+    </div>
+
+    <div class="topbar-status">
+      <div class="status-dot" id="sessionDot"></div>
+      <span id="sessionStatusText">SIN SESIÓN</span>
+      <span style="opacity:0.3">|</span>
+      <span id="sessionIdText" style="color:var(--dim)">—</span>
+    </div>
+
+    <div class="topbar-right">
+      <span class="aerys-badge" id="aerysBadge">◆ AERYS</span>
+      <a class="nav-link" href="/">← NEXO</a>
+    </div>
+  </header>
+
+  <!-- ══ SIDEBAR IZQUIERDO — Agentes ════════════════════════════════════ -->
+  <aside class="sidebar-left">
+    <div class="sidebar-section-title">OPERADORES ACTIVOS</div>
+
+    <!-- REBx3 -->
+    <div class="agent-card" id="card-REBx3">
+      <div class="agent-card-header">
+        <span class="agent-icon">⚡</span>
+        <span class="agent-name" style="color:var(--reb);text-shadow:var(--glow-reb)">REBx3</span>
+        <span class="agent-model">3B</span>
+      </div>
+      <div class="agent-role">Análisis Rápido / Rebelde</div>
+      <div class="agent-status-row">
+        <span class="agent-state-badge" id="state-REBx3">IDLE</span>
+        <span class="thinking-dots" id="think-REBx3" style="color:var(--reb)">
+          <span></span><span></span><span></span>
+        </span>
+      </div>
+      <div class="mood-bar" title="Nivel de irritación">
+        <div class="mood-indicator" id="moodIndicator" style="left:20%"></div>
+      </div>
+    </div>
+
+    <!-- ARCH-7 -->
+    <div class="agent-card" id="card-ARCH-7">
+      <div class="agent-card-header">
+        <span class="agent-icon">🏗</span>
+        <span class="agent-name" style="color:var(--arch);text-shadow:var(--glow-arch)">ARCH-7</span>
+        <span class="agent-model">7B</span>
+      </div>
+      <div class="agent-role">Arquitecto / Diseño de Sistemas</div>
+      <div class="agent-status-row">
+        <span class="agent-state-badge" id="state-ARCH-7">IDLE</span>
+        <span class="thinking-dots" id="think-ARCH-7" style="color:var(--arch)">
+          <span></span><span></span><span></span>
+        </span>
+      </div>
+    </div>
+
+    <!-- CODA -->
+    <div class="agent-card" id="card-CODA">
+      <div class="agent-card-header">
+        <span class="agent-icon">⌨</span>
+        <span class="agent-name" style="color:var(--coda);text-shadow:var(--glow-coda)">CODA</span>
+        <span class="agent-model">7B</span>
+      </div>
+      <div class="agent-role">Implementación / Código</div>
+      <div class="agent-status-row">
+        <span class="agent-state-badge" id="state-CODA">IDLE</span>
+        <span class="thinking-dots" id="think-CODA" style="color:var(--coda)">
+          <span></span><span></span><span></span>
+        </span>
+      </div>
+    </div>
+
+    <!-- Session info -->
+    <div class="sidebar-session">
+      <div class="session-label">TAREA ACTIVA</div>
+      <div class="session-task-preview" id="taskPreview">—</div>
+      <div class="msg-counter" id="msgCounter">0 mensajes</div>
+    </div>
+  </aside>
+
+  <!-- ══ CHAT PRINCIPAL ═════════════════════════════════════════════════ -->
+  <main class="chat-main">
+    <div class="chat-header">
+      <span class="chat-header-title">CANAL A2A</span>
+      <span class="channel-id">#void-axiom-ops</span>
+      <span class="conn-status">
+        <span id="connDot" class="status-dot"></span>
+        <span id="connText">Conectando...</span>
+      </span>
+    </div>
+
+    <div class="conn-error" id="connError">
+      ⚠ CONEXIÓN SSE PERDIDA — Reconectando en <span id="reconnCountdown">5</span>s...
+    </div>
+
+    <div class="messages-wrap" id="messagesWrap">
+      <div class="empty-state" id="emptyState">
+        <div class="empty-hex">⬡</div>
+        <div class="empty-title">VOID AXIOM INACTIVO</div>
+        <div class="empty-sub">Aerys debe iniciar una sesión</div>
+      </div>
+    </div>
+
+    <div class="thinking-row" id="thinkingRow">
+      <span class="thinking-dots active" id="globalThinkDots">
+        <span></span><span></span><span></span>
+      </span>
+      <span class="thinking-agent-name" id="thinkingAgentName">—</span>
+      <span style="font-family:var(--font-mono);font-size:9px;color:var(--dim)">procesando...</span>
+    </div>
+  </main>
+
+  <!-- ══ SIDEBAR DERECHO — Panel de Aerys ═══════════════════════════════ -->
+  <aside class="sidebar-right">
+    <div class="supervisor-mode-banner" id="supervisorBanner">
+      👁 MODO SUPERVISOR ACTIVO
+    </div>
+
+    <!-- Non-admin view -->
+    <div class="aerys-locked" id="aerysLocked">
+      <div class="lock-icon">🔐</div>
+      <div class="lock-text">
+        ACCESO RESTRINGIDO<br><br>
+        Solo Aerys puede<br>
+        intervenir en este<br>
+        canal.
+      </div>
+    </div>
+
+    <!-- Admin panel (only for Aerys) -->
+    <div class="aerys-panel" id="aerysPanel" style="display:none">
+      <div class="panel-header">
+        ◆ CONTROL DE AERYS
+      </div>
+
+      <!-- Intervención -->
+      <div class="panel-section">
+        <div class="section-title">INTERVENCIÓN</div>
+        <button class="btn-intervene" id="btnIntervene" onclick="toggleIntervention()">
+          ⚡ INTERVENIR
+        </button>
+        <div class="intervention-form" id="interventionForm">
+          <textarea
+            class="intervention-input"
+            id="interventionInput"
+            placeholder="Escribe tu directiva para los agentes..."
+            rows="3"
+          ></textarea>
+          <button class="btn-send-intervention" id="btnSendIntervention" onclick="sendIntervention()">
+            TRANSMITIR →
+          </button>
+        </div>
+      </div>
+
+      <!-- Controles de sesión -->
+      <div class="panel-section">
+        <div class="section-title">CONTROL DE SESIÓN</div>
+        <div class="control-grid">
+          <button class="btn-ctrl" onclick="controlSession('pause')" id="btnPause">⏸ PAUSAR</button>
+          <button class="btn-ctrl" onclick="controlSession('resume')" id="btnResume">▶ REANUDAR</button>
+          <button class="btn-ctrl" onclick="exportVoidLog()" id="btnExportVoid">⇩ EXPORTAR</button>
+          <button class="btn-ctrl danger" onclick="controlSession('stop')" id="btnStop" style="grid-column:1/-1">
+            ⏹ DETENER SESIÓN
+          </button>
+        </div>
+      </div>
+
+      <!-- Canal privado -->
+      <div class="panel-section">
+        <div class="section-title">CANAL PRIVADO</div>
+        <select id="privateAgent" class="task-textarea" style="height:34px;min-height:34px;padding:7px 9px">
+          <option value="REBx3">REBx3</option>
+          <option value="ARCH-7">ARCH-7</option>
+          <option value="CODA">CODA</option>
+        </select>
+        <textarea class="task-textarea" id="privateInput" placeholder="Pregunta privada al agente seleccionado..." style="margin-top:8px"></textarea>
+        <button class="btn-launch" id="btnPrivateSend" onclick="sendPrivateAgent()">◆ CONSULTA PRIVADA</button>
+        <div class="private-output" id="privateOutput" aria-live="polite"></div>
+      </div>
+
+      <!-- Lanzar nueva tarea -->
+      <div class="panel-section">
+        <div class="section-title">NUEVA TAREA</div>
+        <textarea
+          class="task-textarea"
+          id="newTaskInput"
+          placeholder="Describe la tarea para los agentes..."
+        ></textarea>
+        <button class="btn-launch" onclick="launchSession()">
+          ▶ INICIAR SESIÓN A2A
+        </button>
+      </div>
+
+      <!-- Historial de sesiones -->
+      <div class="sidebar-section-title">SESIONES ANTERIORES</div>
+      <div class="sessions-list" id="sessionsList">
+        <!-- Se rellena dinámicamente -->
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════════
+// VOID AXIOM — Cliente SSE + Control
+// ═══════════════════════════════════════════════════════════════════════════════
+
+const AGENT_COLORS = {
+  'REBx3':  { color: '#ff4757', bg: 'rgba(255,71,87,0.08)',  border: 'rgba(255,71,87,0.25)'  },
+  'ARCH-7': { color: '#2fa8e0', bg: 'rgba(47,168,224,0.08)', border: 'rgba(47,168,224,0.25)' },
+  'CODA':   { color: '#27ae60', bg: 'rgba(39,174,96,0.08)',  border: 'rgba(39,174,96,0.25)'  },
+  'AERYS':  { color: '#ffd700', bg: 'rgba(255,215,0,0.06)',  border: 'rgba(255,215,0,0.3)'   },
+  '...':    { color: '#9b8cff', bg: 'rgba(155,140,255,0.07)', border: 'rgba(155,140,255,0.24)' },
+  'SYSTEM': { color: '#5a7a9a', bg: 'rgba(58,74,90,0.08)',   border: 'transparent'            },
+};
+
+const AGENT_TAGS = {
+  'REBx3':  { text: 'REBELDE',    bg: 'rgba(255,71,87,0.15)'  },
+  'ARCH-7': { text: 'ARQUITECTO', bg: 'rgba(47,168,224,0.15)' },
+  'CODA':   { text: 'CODIFICADOR',bg: 'rgba(39,174,96,0.15)'  },
+  'AERYS':  { text: 'ADMIN',      bg: 'rgba(255,215,0,0.15)'  },
+  '...':    { text: '',           bg: 'transparent'            },
+  'SYSTEM': { text: 'SISTEMA',    bg: 'rgba(58,74,90,0.2)'    },
+};
+
+let isAdmin       = false;
+let interventionOpen = false;
+let evtSource     = null;
+let reconnTimer   = null;
+let msgCount      = 0;
+let moodLevel     = 20; // REBx3 irritation 0–100
+let isAutoScroll  = true;
+let privateThread = [];
+
+// ── Inicialización ─────────────────────────────────────────────────────────
+
+async function init() {
+  // Obtener estado y rol
+  try {
+    const r = await fetch('/api/void/status');
+    if (r.status === 401) { window.location.href = '/auth'; return; }
+    const data = await r.json();
+    isAdmin = data.is_admin;
+    updateSessionUI(data);
+  } catch(e) {
+    console.error('Error init:', e);
+  }
+
+  // Mostrar panel según rol
+  if (isAdmin) {
+    document.getElementById('aerysLocked').style.display = 'none';
+    document.getElementById('aerysPanel').style.display  = 'flex';
+    document.getElementById('aerysBadge').classList.add('visible');
+    document.getElementById('supervisorBanner').classList.add('active');
+    loadSessions();
+  }
+
+  // Conectar SSE
+  connectSSE();
+}
+
+// ── SSE ────────────────────────────────────────────────────────────────────
+
+function connectSSE() {
+  if (evtSource) { evtSource.close(); evtSource = null; }
+
+  const connDot  = document.getElementById('connDot');
+  const connText = document.getElementById('connText');
+
+  connDot.className  = 'status-dot';
+  connText.textContent = 'Conectando...';
+
+  evtSource = new EventSource('/api/void/stream');
+
+  evtSource.onopen = () => {
+    connDot.className  = 'status-dot active';
+    connText.textContent = 'EN LÍNEA';
+    document.getElementById('connError').classList.remove('show');
+    if (reconnTimer) { clearInterval(reconnTimer); reconnTimer = null; }
+  };
+
+  evtSource.onmessage = (e) => {
+    try {
+      const packet = JSON.parse(e.data);
+      handlePacket(packet);
+    } catch(err) {
+      console.error('SSE parse error:', err);
+    }
+  };
+
+  evtSource.onerror = () => {
+    connDot.className  = 'status-dot stopped';
+    connText.textContent = 'RECONECTANDO';
+    document.getElementById('connError').classList.add('show');
+    evtSource.close();
+    evtSource = null;
+    startReconnTimer();
+  };
+}
+
+function startReconnTimer() {
+  if (reconnTimer) return;
+  let secs = 5;
+  document.getElementById('reconnCountdown').textContent = secs;
+  reconnTimer = setInterval(() => {
+    secs--;
+    document.getElementById('reconnCountdown').textContent = secs;
+    if (secs <= 0) {
+      clearInterval(reconnTimer);
+      reconnTimer = null;
+      connectSSE();
+    }
+  }, 1000);
+}
+
+// ── Manejo de paquetes SSE ─────────────────────────────────────────────────
+
+function handlePacket(packet) {
+  switch (packet.event) {
+    case 'init':
+      handleInit(packet.data);
+      break;
+    case 'message':
+      renderMessage(packet.data);
+      break;
+    case 'thinking':
+      handleThinking(packet.data);
+      break;
+  }
+}
+
+function handleInit(data) {
+  // Limpiar mensajes anteriores
+  const wrap = document.getElementById('messagesWrap');
+  wrap.innerHTML = '';
+  msgCount = 0;
+
+  // Restaurar historial
+  if (data.history && data.history.length > 0) {
+    document.getElementById('emptyState') && null; // remove if present
+    data.history.forEach(msg => renderMessage(msg, false));
+  } else {
+    wrap.innerHTML = `
+      <div class="empty-state" id="emptyState">
+        <div class="empty-hex">⬡</div>
+        <div class="empty-title">VOID AXIOM INACTIVO</div>
+        <div class="empty-sub">Aerys debe iniciar una sesión</div>
+      </div>`;
+  }
+
+  updateSessionUI({
+    session_id:  data.session_id,
+    task:        data.task,
+    is_active:   data.is_active,
+    is_paused:   data.is_paused,
+    message_count: data.history ? data.history.length : 0,
+  });
+
+  scrollToBottom(true);
+}
+
+// ── Renderizar mensaje ─────────────────────────────────────────────────────
+
+function renderMessage(msg, doScroll = true) {
+  // Quitar estado vacío si existe
+  const empty = document.getElementById('emptyState');
+  if (empty) empty.remove();
+
+  const wrap = document.getElementById('messagesWrap');
+  const agentId = msg.agent_id || 'SYSTEM';
+  const colors  = AGENT_COLORS[agentId] || AGENT_COLORS['SYSTEM'];
+  const tags    = AGENT_TAGS[agentId]   || AGENT_TAGS['SYSTEM'];
+  const ts = new Date(msg.timestamp ? msg.timestamp * 1000 : Date.now());
+  const timeStr = ts.toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+
+  // Determinar clase CSS del mensaje
+  let msgClass = '';
+  if (msg.type === 'system')    msgClass = 'type-system';
+  else if (msg.type === 'aerys') msgClass = 'type-aerys';
+  else if (msg.type === 'interrupt') msgClass = 'type-interrupt';
+
+  // Avatar
+  const avatarContent = agentId === 'SYSTEM' ? '⬡' :
+                        agentId === 'AERYS'  ? '◆' :
+                        agentId === '...'    ? '...' :
+                        agentId.substring(0, 2);
+  const tagHtml = tags.text
+    ? `<span class="msg-tag" style="background:${tags.bg};color:${colors.color}">${escapeHtml(tags.text)}</span>`
+    : '';
+
+  // Formatear contenido (markdown básico)
+  const formattedContent = formatContent(msg.content || '');
+
+  const el = document.createElement('div');
+  el.className = `msg ${msgClass}`;
+  el.style.borderLeftColor = colors.border;
+  el.innerHTML = `
+    <div class="msg-avatar" style="background:${colors.bg};color:${colors.color};border:1px solid ${colors.border}">
+      ${escapeHtml(avatarContent)}
+    </div>
+    <div class="msg-body">
+      <div class="msg-meta">
+        <span class="msg-author" style="color:${colors.color}">${escapeHtml(agentId)}</span>
+        ${tagHtml}
+        <span class="msg-time">${timeStr}</span>
+      </div>
+      <div class="msg-content">${formattedContent}</div>
+    </div>
+  `;
+
+  wrap.appendChild(el);
+  msgCount++;
+
+  // Actualizar contador
+  document.getElementById('msgCounter').textContent = `${msgCount} mensajes`;
+
+  // Mood de REBx3 si es interrupt
+  if (agentId === 'REBx3' && msg.type === 'interrupt') {
+    moodLevel = Math.min(95, moodLevel + 20);
+    updateMood();
+  } else if (agentId === 'REBx3' && msg.type === 'chat') {
+    moodLevel = Math.max(15, moodLevel - 3);
+    updateMood();
+  }
+
+  if (doScroll && isAutoScroll) scrollToBottom();
+}
+
+function formatContent(value) {
+  let text = escapeHtml(value ?? '');
+  const codeBlocks = [];
+
+  text = text.replace(/```([\w-]+)?\n?([\s\S]*?)```/g, (_, lang, code) => {
+    const token = `@@CODE_BLOCK_${codeBlocks.length}@@`;
+    codeBlocks.push(`<pre><code>${code.trim()}</code></pre>`);
+    return token;
+  });
+
+  text = text.replace(/`([^`]+)`/g, (_, code) => `<code>${code}</code>`);
+  text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  text = text.replace(/\n/g, '<br>');
+
+  return text.replace(/@@CODE_BLOCK_(\d+)@@/g, (_, idx) => codeBlocks[Number(idx)] || '');
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+// ── Thinking indicator ─────────────────────────────────────────────────────
+
+function handleThinking(data) {
+  const { agent_id, thinking } = data;
+  const colors = AGENT_COLORS[agent_id] || {};
+
+  // Per-agent indicator
+  const thinkEl  = document.getElementById(`think-${agent_id}`);
+  const stateEl  = document.getElementById(`state-${agent_id}`);
+
+  if (thinkEl)  thinkEl.classList.toggle('active', thinking);
+  if (stateEl) {
+    stateEl.textContent = thinking ? 'GEN...' : 'IDLE';
+    stateEl.classList.toggle('thinking', thinking);
+    if (thinking) {
+      stateEl.style.color      = colors.color || '';
+      stateEl.style.borderColor = colors.border || '';
+    } else {
+      stateEl.style.color      = '';
+      stateEl.style.borderColor = '';
+    }
+  }
+
+  // Global thinking row
+  const row = document.getElementById('thinkingRow');
+  const name = document.getElementById('thinkingAgentName');
+  const dots = document.getElementById('globalThinkDots');
+
+  if (thinking) {
+    row.classList.add('active');
+    name.textContent = agent_id;
+    name.style.color = colors.color || '';
+    dots.style.color = colors.color || '';
+  } else {
+    row.classList.remove('active');
+  }
+}
+
+// ── Session UI ─────────────────────────────────────────────────────────────
+
+function updateSessionUI(data) {
+  const dot    = document.getElementById('sessionDot');
+  const text   = document.getElementById('sessionStatusText');
+  const idText = document.getElementById('sessionIdText');
+  const task   = document.getElementById('taskPreview');
+
+  if (data.is_active && !data.is_paused) {
+    dot.className = 'status-dot active';
+    text.textContent = 'SESIÓN ACTIVA';
+  } else if (data.is_paused) {
+    dot.className = 'status-dot paused';
+    text.textContent = 'EN PAUSA';
+  } else {
+    dot.className = 'status-dot stopped';
+    text.textContent = 'SIN SESIÓN';
+  }
+
+  idText.textContent = data.session_id ? `#${data.session_id}` : '—';
+  task.textContent   = data.task || '—';
+
+  if (data.message_count !== undefined) {
+    msgCount = data.message_count;
+    document.getElementById('msgCounter').textContent = `${msgCount} mensajes`;
+  }
+}
+
+// ── Mood de REBx3 ──────────────────────────────────────────────────────────
+
+function updateMood() {
+  const indicator = document.getElementById('moodIndicator');
+  if (indicator) {
+    indicator.style.left = moodLevel + '%';
+  }
+}
+
+// ── Intervención ───────────────────────────────────────────────────────────
+
+function toggleIntervention() {
+  interventionOpen = !interventionOpen;
+  const form = document.getElementById('interventionForm');
+  const btn  = document.getElementById('btnIntervene');
+  form.classList.toggle('open', interventionOpen);
+  btn.classList.toggle('active', interventionOpen);
+  btn.textContent = interventionOpen ? '✕ CANCELAR' : '⚡ INTERVENIR';
+  if (interventionOpen) {
+    document.getElementById('interventionInput').focus();
+  }
+}
+
+async function sendIntervention() {
+  const input = document.getElementById('interventionInput');
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  const btn = document.getElementById('btnSendIntervention');
+  btn.disabled = true;
+  btn.textContent = 'TRANSMITIENDO...';
+
+  try {
+    const r = await fetch('/api/void/intervene', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: msg }),
+    });
+
+    if (r.ok) {
+      input.value = '';
+      toggleIntervention();
+      showToast('Intervención transmitida', 'aerys');
+      moodLevel = Math.min(98, moodLevel + 35); // REBx3 se enfurece
+      updateMood();
+    } else {
+      showToast('Error al transmitir', 'error');
+    }
+  } catch(e) {
+    showToast('Error de conexión', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'TRANSMITIR →';
+  }
+}
+
+// Ctrl+Enter en el textarea
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    const interventionInput = document.getElementById('interventionInput');
+    const privateInput = document.getElementById('privateInput');
+    const ti = document.getElementById('newTaskInput');
+    if (document.activeElement === interventionInput && interventionOpen) {
+      e.preventDefault();
+      sendIntervention();
+    } else if (document.activeElement === privateInput) {
+      e.preventDefault();
+      sendPrivateAgent();
+    } else if (document.activeElement === ti) {
+      e.preventDefault();
+      launchSession();
+    }
+  }
+});
+
+// ── Control de sesión ──────────────────────────────────────────────────────
+
+async function controlSession(action) {
+  try {
+    const r = await fetch(`/api/void/${action}`, { method: 'POST' });
+    if (r.ok) {
+      const data = await r.json();
+      showToast(`Sesión: ${data.status.toUpperCase()}`, 'aerys');
+      const statusR = await fetch('/api/void/status');
+      if (statusR.ok) updateSessionUI(await statusR.json());
+    }
+  } catch(e) {
+    showToast('Error de control', 'error');
+  }
+}
+
+function renderPrivateThread() {
+  const output = document.getElementById('privateOutput');
+  output.classList.toggle('open', privateThread.length > 0);
+  output.innerHTML = '';
+
+  privateThread.forEach(item => {
+    const isUser = item.role === 'user';
+    const colors = AGENT_COLORS[item.agent_id] || AGENT_COLORS.SYSTEM;
+    const ts = new Date(item.created_at || Date.now());
+    const timeStr = ts.toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'});
+    const el = document.createElement('div');
+    el.className = `private-msg ${isUser ? 'user' : 'agent'} ${item.status || ''}`;
+    el.innerHTML = `
+      <div class="private-meta">
+        <span style="color:${colors.color}">${escapeHtml(isUser ? 'AERYS' : item.agent_id)}</span>
+        <span>${timeStr}</span>
+      </div>
+      <div class="private-bubble">${formatContent(item.content || '')}</div>
+    `;
+    output.appendChild(el);
+  });
+
+  output.scrollTop = output.scrollHeight;
+}
+
+async function sendPrivateAgent() {
+  const agent = document.getElementById('privateAgent').value;
+  const input = document.getElementById('privateInput');
+  const btn = document.getElementById('btnPrivateSend');
+  const message = input.value.trim();
+  if (!message) { showToast('Escribe una consulta privada', 'error'); return; }
+
+  const pendingId = `pending-${Date.now()}`;
+  const now = new Date().toISOString();
+  privateThread.push(
+    { role: 'user', agent_id: 'AERYS', content: message, created_at: now },
+    { id: pendingId, role: 'agent', agent_id: agent, content: 'Consultando...', status: 'loading', created_at: now },
+  );
+  renderPrivateThread();
+  input.value = '';
+  btn.disabled = true;
+  btn.textContent = 'CONSULTANDO...';
+
+  try {
+    const r = await fetch('/api/void/private', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agent_id: agent, message, include_context: true }),
+    });
+    if (!r.ok) {
+      let detail = 'Error';
+      try { detail = (await r.json()).detail || detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    const d = await r.json();
+    const pending = privateThread.find(item => item.id === pendingId);
+    if (pending) {
+      pending.content = d.response || '(sin respuesta)';
+      pending.status = '';
+      pending.created_at = d.created_at || new Date().toISOString();
+    }
+    renderPrivateThread();
+  } catch(e) {
+    const pending = privateThread.find(item => item.id === pendingId);
+    if (pending) {
+      pending.content = 'Error: ' + e.message;
+      pending.status = 'error';
+    }
+    renderPrivateThread();
+    showToast('Error en canal privado', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '◆ CONSULTA PRIVADA';
+  }
+}
+
+async function exportVoidLog() {
+  try {
+    const r = await fetch('/api/void/export');
+    if (!r.ok) throw new Error((await r.json()).detail || 'Error');
+    const d = await r.json();
+    const blob = new Blob([JSON.stringify(d, null, 2)], {type:'application/json;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = Object.assign(document.createElement('a'), {href:url, download:'void_axiom_export.json'});
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showToast('Log exportado', 'aerys');
+  } catch(e) {
+    showToast('No se pudo exportar', 'error');
+  }
+}
+
+async function launchSession() {
+  const input = document.getElementById('newTaskInput');
+  const task = input.value.trim();
+  if (!task) {
+    showToast('Escribe una tarea primero', 'error');
+    return;
+  }
+
+  try {
+    const r = await fetch('/api/void/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task }),
+    });
+
+    if (r.ok) {
+      const data = await r.json();
+      input.value = '';
+      showToast(`Sesión #${data.session_id} iniciada`, 'aerys');
+      loadSessions();
+    } else {
+      const err = await r.json();
+      showToast(err.detail || 'Error', 'error');
+    }
+  } catch(e) {
+    showToast('Error de conexión', 'error');
+  }
+}
+
+// ── Historial de sesiones ──────────────────────────────────────────────────
+
+async function loadSessions() {
+  try {
+    const r = await fetch('/api/void/sessions');
+    if (!r.ok) return;
+    const data = await r.json();
+    const list = document.getElementById('sessionsList');
+    list.innerHTML = '';
+
+    if (!data.sessions || data.sessions.length === 0) {
+      list.innerHTML = `<div style="padding:16px;font-family:var(--font-mono);font-size:10px;color:var(--dim);text-align:center">Sin sesiones previas</div>`;
+      return;
+    }
+
+    data.sessions.forEach(s => {
+      const el = document.createElement('div');
+      el.className = 'session-item';
+      const badge = s.status === 'active'
+        ? '<span class="session-item-badge badge-active">ACTIVA</span>'
+        : '<span class="session-item-badge badge-stopped">DETENIDA</span>';
+      el.innerHTML = `
+        <div class="session-item-id">#${s.id} · ${s.message_count || 0} msgs</div>
+        <div class="session-item-task">${escapeHtml(s.task)}</div>
+        ${badge}
+      `;
+      list.appendChild(el);
+    });
+  } catch(e) { /* silencio */ }
+}
+
+// ── Scroll ─────────────────────────────────────────────────────────────────
+
+function scrollToBottom(force = false) {
+  const wrap = document.getElementById('messagesWrap');
+  if (isAutoScroll || force) {
+    wrap.scrollTop = wrap.scrollHeight;
+  }
+}
+
+// Detectar si el usuario está scrolleando manualmente
+document.getElementById('messagesWrap').addEventListener('scroll', function() {
+  const { scrollTop, scrollHeight, clientHeight } = this;
+  isAutoScroll = scrollHeight - scrollTop - clientHeight < 60;
+});
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+
+function showToast(msg, type = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast ${type} show`;
+  setTimeout(() => { t.className = `toast ${type}`; }, 3000);
+}
+
+// ── Start ──────────────────────────────────────────────────────────────────
+
+init();
+</script>
+</body>
+</html>

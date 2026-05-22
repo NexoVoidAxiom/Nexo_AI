@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Generador de Código — Nexo IA Local</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root {
+  --bg-primary:   #0d1117; --bg-secondary: #161b22; --bg-tertiary: #21262d;
+  --border:       #30363d; --border-hover: #58a6ff;
+  --text-primary: #c9d1d9; --text-secondary: #8b949e; --text-dim: #6e7681;
+  --accent:       #58a6ff; --accent-hover: #79c0ff;
+  --green:        #3fb950; --orange: #d29922; --red: #f85149; --purple: #bc8cff;
+  --radius: 8px; --radius-lg: 12px;
+  --font:      -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --font-mono: 'SF Mono','Fira Code',Consolas,monospace;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:var(--font); background:var(--bg-primary); color:var(--text-primary); height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+::-webkit-scrollbar { width:5px; } ::-webkit-scrollbar-track { background:transparent; } ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+
+/* ── HEADER ───────────────────────────────────────────────────────── */
+.header { background:var(--bg-secondary); border-bottom:1px solid var(--border); padding:9px 18px; display:flex; align-items:center; gap:10px; flex-shrink:0; flex-wrap:wrap; }
+.header h1 { font-size:15px; font-weight:700; }
+.badge { font-size:10px; font-weight:700; padding:2px 8px; border-radius:12px; white-space:nowrap; }
+.badge-local  { background:rgba(63,185,80,.15);  border:1px solid rgba(63,185,80,.3);  color:var(--green); }
+.badge-14b    { background:rgba(188,140,255,.12); border:1px solid rgba(188,140,255,.3); color:var(--purple); }
+.badge-7b     { background:rgba(88,166,255,.12);  border:1px solid rgba(88,166,255,.3);  color:var(--accent); }
+.agent-legend { display:flex; gap:6px; margin-left:4px; }
+.btn-back { margin-left:auto; background:var(--bg-tertiary); border:1px solid var(--border); color:var(--text-secondary); font-size:12px; font-weight:600; padding:5px 12px; border-radius:var(--radius); cursor:pointer; text-decoration:none; transition:all .2s; }
+.btn-back:hover { border-color:var(--accent); color:var(--accent); }
+
+/* ── LAYOUT ───────────────────────────────────────────────────────── */
+.main { flex:1; display:grid; grid-template-columns:300px 1fr; overflow:hidden; }
+
+/* ── LEFT PANEL ───────────────────────────────────────────────────── */
+.panel-left { border-right:1px solid var(--border); overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:12px; background:var(--bg-secondary); }
+.sec-label { font-size:10px; font-weight:700; color:var(--text-dim); text-transform:uppercase; letter-spacing:.07em; display:block; margin-bottom:5px; }
+textarea#prompt { width:100%; min-height:110px; resize:vertical; padding:9px 11px; background:var(--bg-tertiary); border:1px solid var(--border); border-radius:var(--radius); color:var(--text-primary); font-size:13px; outline:none; font-family:var(--font); line-height:1.5; }
+textarea#prompt:focus { border-color:var(--accent); }
+textarea#prompt::placeholder { color:var(--text-dim); }
+select { width:100%; padding:7px 10px; background:var(--bg-tertiary); border:1px solid var(--border); border-radius:var(--radius); color:var(--text-primary); font-size:12px; outline:none; cursor:pointer; }
+select:focus { border-color:var(--accent); }
+.btn-gen { width:100%; padding:11px; background:var(--accent); color:#fff; border:none; border-radius:var(--radius); font-size:13px; font-weight:700; cursor:pointer; transition:background .2s; display:flex; align-items:center; justify-content:center; gap:8px; }
+.btn-gen:hover { background:var(--accent-hover); }
+.btn-gen:disabled { background:var(--bg-tertiary); color:var(--text-dim); cursor:not-allowed; }
+.error-box { display:none; padding:9px 11px; background:rgba(248,81,73,.08); border:1px solid rgba(248,81,73,.3); border-radius:var(--radius); font-size:12px; color:var(--red); line-height:1.5; }
+.examples { display:flex; flex-direction:column; gap:4px; }
+.chip { padding:6px 9px; background:var(--bg-tertiary); border:1px solid var(--border); border-radius:var(--radius); font-size:11px; color:var(--text-secondary); cursor:pointer; transition:all .15s; line-height:1.4; }
+.chip:hover { border-color:var(--accent); color:var(--accent); background:rgba(88,166,255,.05); }
+
+/* ── RIGHT PANEL ──────────────────────────────────────────────────── */
+.panel-right { display:flex; flex-direction:column; overflow:hidden; }
+
+/* ── EMPTY STATE ──────────────────────────────────────────────────── */
+.empty-state { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--text-dim); gap:12px; padding:40px; text-align:center; }
+.empty-icon  { font-size:42px; opacity:.4; }
+.empty-title { font-size:15px; font-weight:600; color:var(--text-secondary); }
+.empty-sub   { font-size:12px; max-width:340px; line-height:1.6; }
+.agent-diagram { display:flex; align-items:center; gap:10px; margin-top:8px; padding:12px 18px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:var(--radius-lg); }
+.adiag-box { text-align:center; }
+.adiag-box .name { font-size:11px; font-weight:700; }
+.adiag-box .role { font-size:10px; color:var(--text-dim); margin-top:2px; }
+.adiag-arrow { color:var(--text-dim); font-size:16px; }
+
+/* ── PROGRESS PANEL ───────────────────────────────────────────────── */
+#progress-panel { display:none; flex-direction:column; flex:1; overflow:hidden; }
+
+.prog-header { padding:10px 16px; background:var(--bg-secondary); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; flex-shrink:0; }
+.prog-title  { font-size:13px; font-weight:700; flex:1; }
+.prog-phase  { font-size:11px; color:var(--text-dim); }
+
+.prog-body { flex:1; overflow-y:auto; padding:14px 16px; display:flex; flex-direction:column; gap:8px; }
+
+/* phase card */
+.ev-phase { padding:9px 12px; background:rgba(88,166,255,.07); border:1px solid rgba(88,166,255,.2); border-radius:var(--radius); font-size:12px; color:var(--accent); }
+
+/* plan card */
+.ev-plan { padding:10px 12px; background:rgba(188,140,255,.07); border:1px solid rgba(188,140,255,.2); border-radius:var(--radius); }
+.ev-plan .pl-title { font-size:12px; font-weight:700; color:var(--purple); margin-bottom:6px; }
+.ev-plan .pl-stack  { font-size:11px; color:var(--text-secondary); margin-bottom:6px; }
+.pl-files { display:flex; flex-direction:column; gap:3px; }
+.pl-file  { font-size:11px; color:var(--text-dim); display:flex; align-items:baseline; gap:6px; }
+.pl-file .pf-path { color:var(--text-secondary); font-family:var(--font-mono); }
+
+/* file progress */
+.ev-file { padding:8px 12px; background:var(--bg-tertiary); border:1px solid var(--border); border-radius:var(--radius); display:flex; align-items:center; gap:10px; transition:border-color .2s; }
+.ev-file.active   { border-color:var(--orange); background:rgba(210,153,34,.05); }
+.ev-file.done     { border-color:rgba(63,185,80,.3); background:rgba(63,185,80,.04); }
+.ev-file.error    { border-color:rgba(248,81,73,.3); }
+.ev-file .ef-icon { font-size:14px; flex-shrink:0; }
+.ev-file .ef-info { flex:1; min-width:0; }
+.ev-file .ef-path { font-size:12px; font-family:var(--font-mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ef-meta { font-size:10px; color:var(--text-dim); margin-top:2px; display:flex; gap:8px; }
+.ef-lines { color:var(--green); }
+.ef-model { color:var(--text-dim); }
+.ef-spin  { display:inline-block; animation:spin .7s linear infinite; }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* review card */
+.ev-review { padding:8px 12px; background:rgba(210,153,34,.06); border:1px solid rgba(210,153,34,.25); border-radius:var(--radius); font-size:12px; color:var(--orange); }
+
+/* fix card */
+.ev-fix { padding:8px 12px; background:rgba(248,81,73,.06); border:1px solid rgba(248,81,73,.25); border-radius:var(--radius); display:flex; align-items:flex-start; gap:8px; }
+.ev-fix .fix-icon { font-size:13px; flex-shrink:0; margin-top:1px; }
+.ev-fix .fix-info { flex:1; min-width:0; }
+.ev-fix .fix-path  { font-size:12px; font-family:var(--font-mono); color:var(--red); }
+.ev-fix .fix-issue { font-size:11px; color:var(--text-secondary); margin-top:2px; }
+
+/* done card */
+.ev-done { padding:10px 14px; background:rgba(63,185,80,.08); border:1px solid rgba(63,185,80,.3); border-radius:var(--radius); font-size:12px; color:var(--green); font-weight:700; display:flex; align-items:center; gap:8px; }
+
+/* ── RESULTS ──────────────────────────────────────────────────────── */
+#results-wrap { display:none; flex-direction:column; flex:1; overflow:hidden; }
+.results-header { padding:9px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; background:var(--bg-secondary); flex-shrink:0; flex-wrap:wrap; }
+.proj-name  { font-size:13px; font-weight:700; }
+.file-count { font-size:11px; color:var(--text-dim); }
+.btn-file-dl { display:none; align-items:center; gap:5px; padding:5px 11px; background:var(--bg-tertiary); border:1px solid var(--border); color:var(--text-secondary); border-radius:var(--radius); font-size:12px; font-weight:600; cursor:pointer; transition:all .2s; }
+.btn-file-dl:hover { border-color:var(--accent); color:var(--accent); }
+.btn-zip { margin-left:auto; display:flex; align-items:center; gap:5px; padding:5px 13px; background:rgba(63,185,80,.1); border:1px solid rgba(63,185,80,.3); color:var(--green); border-radius:var(--radius); font-size:12px; font-weight:700; cursor:pointer; transition:all .2s; }
+.btn-zip:hover   { background:rgba(63,185,80,.2); }
+.btn-zip:disabled { opacity:.4; cursor:not-allowed; }
+.btn-back-prog { padding:5px 11px; background:var(--bg-tertiary); border:1px solid var(--border); color:var(--text-secondary); border-radius:var(--radius); font-size:12px; font-weight:600; cursor:pointer; transition:all .2s; }
+.btn-back-prog:hover { border-color:var(--accent); color:var(--accent); }
+
+.workspace { flex:1; display:grid; grid-template-columns:200px 1fr; overflow:hidden; }
+.filetree  { border-right:1px solid var(--border); overflow-y:auto; background:var(--bg-secondary); }
+.filetree-head { padding:7px 12px; border-bottom:1px solid var(--border); font-size:10px; font-weight:700; color:var(--text-dim); text-transform:uppercase; letter-spacing:.07em; }
+.f-folder { padding:4px 12px; font-size:11px; font-weight:700; color:var(--text-dim); display:flex; align-items:center; gap:5px; }
+.f-item   { padding:4px 12px; font-size:12px; cursor:pointer; display:flex; align-items:center; gap:5px; white-space:nowrap; overflow:hidden; transition:background .1s; color:var(--text-secondary); }
+.f-item:hover  { background:var(--bg-tertiary); color:var(--text-primary); }
+.f-item.active { background:rgba(88,166,255,.1); color:var(--accent); }
+.f-item .f-name { overflow:hidden; text-overflow:ellipsis; }
+
+.editor { display:flex; flex-direction:column; overflow:hidden; }
+.editor-bar { padding:7px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; background:var(--bg-secondary); flex-shrink:0; font-size:12px; color:var(--text-secondary); font-family:var(--font-mono); min-height:35px; }
+.lang-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; background:var(--text-dim); }
+.editor-stats { margin-left:auto; font-size:10px; color:var(--text-dim); font-family:var(--font); }
+pre#code-view { flex:1; margin:0; padding:16px; font-family:var(--font-mono); font-size:12px; line-height:1.7; overflow:auto; white-space:pre-wrap; word-break:break-word; color:var(--text-primary); background:var(--bg-primary); }
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="header">
+  <span style="font-size:17px;">⚡</span>
+  <h1>Generador de Código</h1>
+  <span class="badge badge-local">LOCAL</span>
+  <div class="agent-legend">
+    <span class="badge badge-14b">🏗️ Arquitecto · 14B</span>
+    <span class="badge badge-7b">🤖 Agente A · 7B</span>
+    <span class="badge badge-7b" style="background:rgba(63,185,80,.12);border-color:rgba(63,185,80,.3);color:var(--green)">🔄 Agente B · 7B</span>
+    <span class="badge badge-14b">🔍 Revisor · 14B</span>
+  </div>
+  <a href="/" class="btn-back">← Analizador</a>
+</div>
+
+<div class="main">
+
+  <!-- LEFT PANEL -->
+  <div class="panel-left">
+
+    <div>
+      <span class="sec-label">Descripción del proyecto</span>
+      <textarea id="prompt" placeholder="Ej: Juego de Snake en Python con pygame, menú principal, niveles de dificultad y puntuación guardada en archivo JSON…"></textarea>
+    </div>
+
+    <div>
+      <span class="sec-label">Lenguaje principal</span>
+      <select id="sel-lang">
+        <option value="">Cualquier lenguaje</option>
+        <option value="Python">Python</option>
+        <option value="JavaScript / Node.js">JavaScript / Node.js</option>
+        <option value="TypeScript">TypeScript</option>
+        <option value="HTML + CSS + JavaScript">HTML + CSS + JS</option>
+        <option value="React">React</option>
+        <option value="Java">Java</option>
+        <option value="C# / .NET">C# / .NET</option>
+        <option value="Rust">Rust</option>
+        <option value="Go">Go</option>
+        <option value="C++">C++</option>
+        <option value="PHP">PHP</option>
+        <option value="Lua">Lua</option>
+      </select>
+    </div>
+
+    <div>
+      <span class="sec-label">Tamaño del proyecto</span>
+      <select id="sel-size">
+        <option value="2 to 4">Pequeño — 7 a 11 archivos</option>
+        <option value="4 to 8" selected>Mediano — 12 a 18 archivos</option>
+        <option value="8 to 14">Grande — 20 a 28 archivos</option>
+      </select>
+    </div>
+
+    <button class="btn-gen" id="btn-gen" onclick="doGenerate()">
+      ⚡ Generar con multi-agente IA
+    </button>
+
+    <div class="error-box" id="error-box"></div>
+
+    <div>
+      <span class="sec-label">Ejemplos rápidos</span>
+      <div class="examples">
+        <div class="chip" onclick="fillPrompt(this)">Juego de Snake en Python con pygame, menú, niveles y puntuación guardada en JSON</div>
+        <div class="chip" onclick="fillPrompt(this)">API REST en Node.js con Express, rutas CRUD y base de datos SQLite</div>
+        <div class="chip" onclick="fillPrompt(this)">Calculadora científica en HTML + CSS + JavaScript con historial</div>
+        <div class="chip" onclick="fillPrompt(this)">Bot de Discord en Python con comandos slash y base de datos</div>
+        <div class="chip" onclick="fillPrompt(this)">Todo list en React con localStorage, filtros y prioridades</div>
+        <div class="chip" onclick="fillPrompt(this)">Web scraper en Python con requests, BeautifulSoup y exportación CSV</div>
+        <div class="chip" onclick="fillPrompt(this)">Juego Tetris en Python con pygame, puntuación y niveles</div>
+        <div class="chip" onclick="fillPrompt(this)">Dashboard de monitorización de sistema en Python con psutil y Flask</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="panel-right">
+
+    <!-- Empty state -->
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">🏗️</div>
+      <div class="empty-title">Sistema Multi-Agente de Generación de Código</div>
+      <div class="empty-sub">El <strong>Arquitecto 14B</strong> diseña la estructura con subcarpetas, .bat launchers y contrato de interfaces. Por cada archivo: <strong>Agente A 7B</strong> implementa el código completo, luego <strong>Agente B 7B</strong> lo lee, critica y REESCRIBE con más features. El <strong>Revisor 14B</strong> verifica la coherencia entre todos los archivos.</div>
+      <div class="agent-diagram">
+        <div class="adiag-box">
+          <div class="name" style="color:var(--purple)">🏗️ 14B</div>
+          <div class="role">Arquitecto</div>
+        </div>
+        <div class="adiag-arrow">→</div>
+        <div class="adiag-box">
+          <div class="name" style="color:var(--accent)">🤖 A · 7B</div>
+          <div class="role">Implementador</div>
+        </div>
+        <div class="adiag-arrow">⇄</div>
+        <div class="adiag-box">
+          <div class="name" style="color:var(--green)">🔄 B · 7B</div>
+          <div class="role">Enriquecedor</div>
+        </div>
+        <div class="adiag-arrow">→</div>
+        <div class="adiag-box">
+          <div class="name" style="color:var(--orange)">🔍 14B</div>
+          <div class="role">Revisor</div>
+        </div>
+        <div class="adiag-arrow">→</div>
+        <div class="adiag-box">
+          <div class="name" style="color:var(--green)">📦 ZIP</div>
+          <div class="role">Proyecto</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live progress panel -->
+    <div id="progress-panel">
+      <div class="prog-header">
+        <span id="prog-title" class="prog-title">Generando proyecto…</span>
+        <span id="prog-phase" class="prog-phase"></span>
+      </div>
+      <div class="prog-body" id="prog-body"></div>
+    </div>
+
+    <!-- Results -->
+    <div id="results-wrap">
+      <div class="results-header">
+        <span>📁</span>
+        <span class="proj-name"  id="proj-name"></span>
+        <span class="file-count" id="file-count"></span>
+        <span id="used-models" style="font-size:10px;color:var(--text-secondary);"></span>
+        <button class="btn-back-prog" onclick="showProgress()">📋 Ver proceso</button>
+        <button class="btn-file-dl" id="btn-file-dl" onclick="downloadSingle()">⬇ Archivo</button>
+        <button class="btn-zip" id="btn-zip" onclick="downloadZip()">📦 Descargar .zip</button>
+      </div>
+      <div class="workspace">
+        <div class="filetree">
+          <div class="filetree-head">Archivos</div>
+          <div id="file-tree"></div>
+        </div>
+        <div class="editor">
+          <div class="editor-bar">
+            <div class="lang-dot" id="lang-dot"></div>
+            <span id="editor-fname">— selecciona un archivo —</span>
+            <span class="editor-stats" id="editor-stats"></span>
+          </div>
+          <pre id="code-view">Selecciona un archivo del árbol para ver su contenido.</pre>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── STATE ──────────────────────────────────────────────────────────────────
+let genFiles = [], projName = '', activeIdx = -1;
+let progEvents = [];  // store all events for "Ver proceso"
+
+// ── UTILS ─────────────────────────────────────────────────────────────────
+function fillPrompt(el) {
+  document.getElementById('prompt').value = el.textContent.trim();
+  document.getElementById('prompt').focus();
+}
+function showErr(msg) {
+  const el = document.getElementById('error-box');
+  el.textContent = '⚠ ' + msg; el.style.display = 'block';
+}
+function hideErr() { document.getElementById('error-box').style.display = 'none'; }
+
+function showView(name) {
+  // name: 'empty' | 'progress' | 'results'
+  document.getElementById('empty-state').style.display    = name === 'empty'    ? 'flex' : 'none';
+  document.getElementById('progress-panel').style.display = name === 'progress' ? 'flex' : 'none';
+  document.getElementById('results-wrap').style.display   = name === 'results'  ? 'flex' : 'none';
+}
+
+function showProgress() {
+  showView('progress');
+}
+
+// ── GENERATE ──────────────────────────────────────────────────────────────
+async function doGenerate() {
+  const prompt = document.getElementById('prompt').value.trim();
+  if (!prompt) { showErr('Escribe una descripción del proyecto primero.'); return; }
+
+  const language = document.getElementById('sel-lang').value;
+  const size     = document.getElementById('sel-size').value;
+
+  hideErr();
+  genFiles = []; projName = ''; activeIdx = -1; progEvents = [];
+
+  // Reset progress panel
+  document.getElementById('prog-body').innerHTML = '';
+  document.getElementById('prog-title').textContent = 'Iniciando sistema multi-agente…';
+  document.getElementById('prog-phase').textContent = '';
+  showView('progress');
+
+  document.getElementById('btn-gen').disabled = true;
+
+  try {
+    const res = await fetch('/api/generador/generar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, language, size }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || 'Error del servidor');
+    }
+
+    const reader  = res.body.getReader();
+    const decoder = new TextDecoder();
+    let   buf     = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (line.trim()) handleEvent(JSON.parse(line));
+      }
+    }
+    if (buf.trim()) handleEvent(JSON.parse(buf));
+
+  } catch (e) {
+    showErr('Error: ' + e.message);
+    showView('empty');
+  } finally {
+    document.getElementById('btn-gen').disabled = false;
+  }
+}
+
+// ── EVENT HANDLERS ────────────────────────────────────────────────────────
+function handleEvent(ev) {
+  progEvents.push(ev);
+  const body = document.getElementById('prog-body');
+
+  if (ev.type === 'phase') {
+    document.getElementById('prog-title').textContent = ev.msg;
+    document.getElementById('prog-phase').textContent = `Fase ${ev.phase}/3`;
+    const el = document.createElement('div');
+    el.className = 'ev-phase';
+    el.textContent = ev.msg;
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+  }
+
+  else if (ev.type === 'plan') {
+    projName = ev.project_name;
+    const el = document.createElement('div');
+    el.className = 'ev-plan';
+    el.innerHTML =
+      `<div class="pl-title">📋 Plan del arquitecto — ${ev.project_name}</div>` +
+      (ev.stack ? `<div class="pl-stack">Stack: ${ev.stack}</div>` : '') +
+      `<div class="pl-files">` +
+      ev.files.map(f =>
+        `<div class="pl-file"><span class="pf-path">${fileEmoji(f.path)} ${f.path}</span><span>${f.description || ''}</span></div>`
+      ).join('') +
+      `</div>`;
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+  }
+
+  else if (ev.type === 'file_start') {
+    const el = document.createElement('div');
+    el.className = 'ev-file active';
+    el.id = `ef-${ev.index}`;
+    // Si el mensaje menciona "Agente B" es la fase de enriquecimiento
+    const isAgentB = ev.msg && ev.msg.includes('Agente B');
+    el.innerHTML =
+      `<div class="ef-icon"><span class="ef-spin">${isAgentB ? '🔄' : '⚙️'}</span></div>` +
+      `<div class="ef-info">` +
+        `<div class="ef-path">${fileEmoji(ev.path)} ${ev.path}</div>` +
+        `<div class="ef-meta"><span class="ef-model">${isAgentB ? '🔄 Agente B · Enriqueciendo' : '🤖 Agente A · Implementando'} · ${ev.index+1}/${ev.total}</span></div>` +
+      `</div>`;
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+  }
+
+  else if (ev.type === 'file_done') {
+    genFiles.push({ path: ev.path, content: ev.content });
+    const el = document.getElementById(`ef-${ev.index}`);
+    const delta = (ev.lines_a && ev.lines > ev.lines_a) ? ` <span style="color:var(--green)">+${ev.lines - ev.lines_a}</span>` : '';
+    if (el) {
+      el.className = 'ev-file done';
+      el.innerHTML =
+        `<div class="ef-icon">✅</div>` +
+        `<div class="ef-info">` +
+          `<div class="ef-path">${fileEmoji(ev.path)} ${ev.path}</div>` +
+          `<div class="ef-meta"><span class="ef-lines">${ev.lines} líneas${delta}</span><span class="ef-model">A→B · Dual 7B</span></div>` +
+        `</div>`;
+    }
+    body.scrollTop = body.scrollHeight;
+  }
+
+  else if (ev.type === 'review_start') {
+    const el = document.createElement('div');
+    el.className = 'ev-review';
+    el.textContent = ev.msg;
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+  }
+
+  else if (ev.type === 'fix') {
+    // Update the file in genFiles with the corrected content
+    const existing = genFiles.find(f => f.path === ev.path);
+    if (existing) existing.content = ev.content;
+    const el = document.createElement('div');
+    el.className = 'ev-fix';
+    el.innerHTML =
+      `<div class="fix-icon">🔧</div>` +
+      `<div class="fix-info">` +
+        `<div class="fix-path">${fileEmoji(ev.path)} ${ev.path}</div>` +
+        `<div class="fix-issue">Bug corregido: ${ev.changes} · ${ev.lines} líneas</div>` +
+      `</div>`;
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+  }
+
+  else if (ev.type === 'done') {
+    const el = document.createElement('div');
+    el.className = 'ev-done';
+    const totalLines = ev.total_lines ? ` · ${ev.total_lines.toLocaleString()} líneas totales` : '';
+    el.innerHTML = `🎉 ${ev.msg}${totalLines} <span style="font-size:10px;font-weight:400;color:var(--text-secondary);margin-left:8px;">Arquitecto+Revisor: ${ev.model_architect} · Dual: ${ev.model_subagent}</span>`;
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+
+    // Transition to results after a short delay
+    setTimeout(() => renderResults(ev), 800);
+  }
+
+  else if (ev.type === 'error') {
+    const el = document.createElement('div');
+    el.style.cssText = 'padding:9px 12px;background:rgba(248,81,73,.08);border:1px solid rgba(248,81,73,.3);border-radius:8px;font-size:12px;color:var(--red);';
+    el.textContent = '⚠ ' + ev.msg;
+    body.appendChild(el);
+    body.scrollTop = body.scrollHeight;
+    showErr(ev.msg);
+  }
+}
+
+// ── RESULTS ───────────────────────────────────────────────────────────────
+function renderResults(ev) {
+  document.getElementById('proj-name').textContent  = projName;
+  const totalLines = ev.total_lines ? ` · ${ev.total_lines.toLocaleString()} líneas` : '';
+  document.getElementById('file-count').textContent = `(${genFiles.length} archivos${totalLines})`;
+  document.getElementById('used-models').textContent = `14B + Dual 7B`;
+
+  const tree = document.getElementById('file-tree');
+  tree.innerHTML = '';
+  const seen = new Set();
+
+  genFiles.forEach((f, i) => {
+    const parts = f.path.split('/');
+    const depth = parts.length - 1;
+    if (depth > 0) {
+      const key = parts.slice(0, -1).join('/');
+      if (!seen.has(key)) {
+        seen.add(key);
+        const fd = document.createElement('div');
+        fd.className = 'f-folder';
+        fd.style.paddingLeft = (12 + (depth-1)*14) + 'px';
+        fd.innerHTML = '📁 <span>' + parts[depth-1] + '</span>';
+        tree.appendChild(fd);
+      }
+    }
+    const el = document.createElement('div');
+    el.className = 'f-item';
+    el.style.paddingLeft = (20 + depth*14) + 'px';
+    el.dataset.idx = i;
+    el.innerHTML = fileEmoji(parts[parts.length-1]) + ' <span class="f-name">' + parts[parts.length-1] + '</span>';
+    el.onclick = () => selectFile(i);
+    tree.appendChild(el);
+  });
+
+  showView('results');
+  if (genFiles.length) selectFile(0);
+}
+
+function selectFile(idx) {
+  document.querySelectorAll('.f-item').forEach(el =>
+    el.classList.toggle('active', parseInt(el.dataset.idx) === idx));
+  activeIdx = idx;
+  const f   = genFiles[idx];
+  const ext = f.path.split('.').pop().toLowerCase();
+  document.getElementById('editor-fname').textContent = f.path;
+  const lines = f.content.split('\n').length;
+  const chars = f.content.length;
+  document.getElementById('editor-stats').textContent = `${lines} líneas · ${chars.toLocaleString()} chars`;
+  const dotColors = { py:'#3fb950',js:'#d29922',ts:'#58a6ff',jsx:'#58a6ff',tsx:'#58a6ff',html:'#f78166',css:'#bc8cff',json:'#79c0ff',md:'#8b949e',rs:'#f0883e',go:'#56d364',lua:'#bc8cff',cpp:'#ef7c25',cs:'#9b59b6',java:'#b07219' };
+  document.getElementById('lang-dot').style.background = dotColors[ext] || '#6e7681';
+  document.getElementById('code-view').textContent = f.content;
+  document.getElementById('btn-file-dl').style.display = 'flex';
+}
+
+// ── EMOJI MAP ─────────────────────────────────────────────────────────────
+function fileEmoji(name) {
+  const ext = (name||'').toLowerCase().split('.').pop();
+  if (name.toLowerCase()==='readme.md') return '📖';
+  if (name.toLowerCase()==='requirements.txt') return '📦';
+  if (name.toLowerCase().endsWith('.env')||name.toLowerCase()==='.env') return '🔒';
+  return ({py:'🐍',js:'📜',ts:'📘',jsx:'⚛',tsx:'⚛',html:'🌐',css:'🎨',json:'📋',md:'📝',rs:'🦀',go:'🐹',java:'☕',cs:'💠',cpp:'⚙',c:'⚙',lua:'🌙',sh:'🖥',bat:'🖥',sql:'🗄',yml:'⚙',yaml:'⚙',toml:'⚙',txt:'📄'}[ext]||'📄');
+}
+
+// ── DOWNLOAD ──────────────────────────────────────────────────────────────
+function downloadSingle() {
+  if (activeIdx < 0) return;
+  const f = genFiles[activeIdx];
+  triggerDl(new Blob([f.content], {type:'text/plain;charset=utf-8'}), f.path.split('/').pop());
+}
+
+async function downloadZip() {
+  if (!genFiles.length) return;
+  const btn = document.getElementById('btn-zip');
+  btn.disabled = true; btn.textContent = '⏳ Creando zip…';
+  try {
+    const zip = new JSZip();
+    const root = zip.folder(projName);
+    genFiles.forEach(f => {
+      const parts = f.path.split('/'), fname = parts.pop();
+      let target = root;
+      parts.forEach(p => { target = target.folder(p); });
+      target.file(fname, f.content);
+    });
+    const blob = await zip.generateAsync({type:'blob', compression:'DEFLATE'});
+    triggerDl(blob, projName + '.zip');
+  } catch(e) { showErr('Error al crear el zip: ' + e.message); }
+  finally { btn.disabled = false; btn.innerHTML = '📦 Descargar .zip'; }
+}
+
+function triggerDl(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = Object.assign(document.createElement('a'), {href:url, download:filename});
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a); URL.revokeObjectURL(url);
+}
+</script>
+</body>
+</html>

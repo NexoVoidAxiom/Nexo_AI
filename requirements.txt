@@ -1,0 +1,26 @@
+# ═══════════════════════════════════════════════════════════
+# Analizador de Datos IA Local - Dependencias
+# GTX 1080 Ti (11GB VRAM) + i7-9700K + 32GB RAM
+# ═══════════════════════════════════════════════════════════
+
+# --- Web Framework ---
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.6
+httpx>=0.26.0
+
+# --- Data Processing ---
+pandas>=2.1.0
+pyarrow>=14.0.0
+
+# --- Web Search (sin API key, gratis) ---
+duckduckgo-search>=6.0.0
+
+# --- GPU Support (CUDA para Pascal) ---
+# torch>=2.1.0 (opcional - solo si necesitas features específicas de torch)
+
+# --- System ---
+psutil>=5.9.0
+
+# --- Templates (no needed since we use static HTML) ---
+# Jinja2 no es necesario - usamos HTML estático + JS
