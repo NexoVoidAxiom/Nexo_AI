@@ -84,7 +84,7 @@ goto MENU
 :: Inicia el servidor en segundo plano si no esta activo
 :: -------------------------------------------------------
 :ARRANCAR_SERVIDOR_BG
-powershell -NoProfile -Command "try { $r=Invoke-WebRequest -UseBasicParsing 'http://localhost:%PORT%/health' -TimeoutSec 3; if ($r.StatusCode -eq 200) { exit 0 } } catch { }; exit 1" >nul 2>&1
+powershell -NoProfile -Command "try { $r=Invoke-WebRequest -UseBasicParsing 'http://localhost:%PORT%/ping' -TimeoutSec 8; if ($r.StatusCode -eq 200) { exit 0 } } catch { }; exit 1" >nul 2>&1
 if not errorlevel 1 (
     echo  [OK] Servidor ya estaba activo en http://localhost:%PORT%
     exit /b 0
@@ -96,7 +96,7 @@ set /a _wait=0
 :WAIT_LOOP
 timeout /t 2 /nobreak >nul
 set /a _wait+=2
-powershell -NoProfile -Command "try { $r=Invoke-WebRequest -UseBasicParsing 'http://localhost:%PORT%/health' -TimeoutSec 3; if ($r.StatusCode -eq 200) { exit 0 } } catch { }; exit 1" >nul 2>&1
+powershell -NoProfile -Command "try { $r=Invoke-WebRequest -UseBasicParsing 'http://localhost:%PORT%/ping' -TimeoutSec 8; if ($r.StatusCode -eq 200) { exit 0 } } catch { }; exit 1" >nul 2>&1
 if not errorlevel 1 (
     echo  [OK] Servidor listo en http://localhost:%PORT%
     exit /b 0
@@ -110,7 +110,7 @@ exit /b 1
 :WEB
 cls
 echo Iniciando servidor web...
-powershell -NoProfile -Command "try { $r=Invoke-WebRequest -UseBasicParsing 'http://localhost:%PORT%/health' -TimeoutSec 3; if ($r.StatusCode -eq 200) { exit 0 } } catch { }; exit 1" >nul 2>&1
+powershell -NoProfile -Command "try { $r=Invoke-WebRequest -UseBasicParsing 'http://localhost:%PORT%/ping' -TimeoutSec 8; if ($r.StatusCode -eq 200) { exit 0 } } catch { }; exit 1" >nul 2>&1
 if not errorlevel 1 (
     echo  [INFO] El servidor ya esta activo en http://localhost:%PORT%
     pause & goto MENU

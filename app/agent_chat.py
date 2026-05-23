@@ -16,6 +16,7 @@ import json
 import os
 import random
 import time
+import uuid
 from datetime import datetime
 from typing import Optional
 
@@ -67,7 +68,7 @@ class AgentSession:
         self.task = ""
         self.is_active = False
         self.is_paused = False
-        self.memory = ConversationMemory()
+        self.memory = ConversationMemory(session_id=str(uuid.uuid4()))
         self.subscribers: list[asyncio.Queue] = []
         self._loop_task: Optional[asyncio.Task] = None
         self._client: Optional[OllamaChatClient] = None
