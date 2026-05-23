@@ -29,10 +29,15 @@ from app.void_agents import (
 )
 from app.void_memory import (
     CONVERSATION_TYPES,
+    DEFAULT_MAX_MESSAGES,
+    DEFAULT_MAX_TOKENS,
+    EXTENDED_MAX_MESSAGES,
+    EXTENDED_MAX_TOKENS,
     ConversationMemory,
     clean_agent_text,
     is_bad_agent_output,
 )
+from app.void_activity import void_activity
 from app.void_ollama import OllamaChatClient
 
 
@@ -43,8 +48,10 @@ SYSTEM_EVENTS = {
     "session_stop": "SESION DETENIDA",
 }
 
-DEFAULT_CONTEXT_MESSAGES = int(os.getenv("VOID_CONTEXT_MESSAGES", "8"))
-DEFAULT_CONTEXT_LINE_CHARS = int(os.getenv("VOID_CONTEXT_LINE_CHARS", "220"))
+DEFAULT_CONTEXT_MESSAGES = int(os.getenv("VOID_CONTEXT_MESSAGES", "36"))
+DEFAULT_CONTEXT_LINE_CHARS = int(os.getenv("VOID_CONTEXT_LINE_CHARS", "520"))
+STANDARD_PROMPT_TOKEN_BUDGET = int(os.getenv("VOID_STANDARD_PROMPT_TOKENS", "11500"))
+EXTENDED_PROMPT_TOKEN_BUDGET = int(os.getenv("VOID_EXTENDED_PROMPT_TOKENS", "14500"))
 INTRUDER_PROBABILITY = float(os.getenv("VOID_INTRUDER_PROBABILITY", "0.12"))
 BACKGROUND_INTRUDER_PROBABILITY = float(
     os.getenv("VOID_BACKGROUND_INTRUDER_PROBABILITY", "0.04")
@@ -75,6 +82,7 @@ class AgentSession:
         self._public_turns_since_intruder = 0
         self._aerys_turns_since_intruder = 0
         self._last_suppressed: dict[str, str] = {}
+        self._extended_context_enabled = False
 
     @property
     def message_history(self) -> list[dict]:
@@ -146,7 +154,10 @@ class AgentSession:
         content = str(content or "").strip()
         if agent_id in ALL_AGENTS:
             content = clean_agent_text(agent_id, content)
-            if is_bad_agent_output(agent_id, content, self._last_generated.get(agent_id, [])):
+            # _generate() already checked repetition before registering the text.
+            # Rechecking against _last_generated here would compare the message
+            # with itself and suppress valid agent turns.
+            if is_bad_agent_output(agent_id, content, ()):
                 self._log_suppressed(agent_id, "post_validation")
                 return None
 
@@ -206,11 +217,44 @@ class AgentSession:
     # ------------------------------------------------------------------
 
     def build_context_snapshot(self, limit: int | None = None, max_chars: int | None = None) -> str:
-        rows = self.memory.recent_context(
-            limit or self.context_message_limit,
-            max_chars or self.context_line_chars,
+        self._sync_memory_mode()
+        prompt_budget = (
+            EXTENDED_PROMPT_TOKEN_BUDGET
+            if self._extended_context_enabled
+            else STANDARD_PROMPT_TOKEN_BUDGET
+        )
+        rows = self.memory.budgeted_context(
+            max_prompt_tokens=prompt_budget,
+            recent_turns=4,
+            max_recent_chars=max_chars or self.context_line_chars,
+            max_historic_chars=260 if self._extended_context_enabled else 180,
+            extended=self._extended_context_enabled,
         )
         return "\n".join(rows)
+
+    def _sync_memory_mode(self) -> None:
+        extended = void_activity.extended_context_allowed()
+        if extended == self._extended_context_enabled:
+            return
+        self._extended_context_enabled = extended
+        if extended:
+            self.memory.configure_budget(
+                max_messages=EXTENDED_MAX_MESSAGES,
+                max_tokens=EXTENDED_MAX_TOKENS,
+            )
+            self._broadcast({
+                "event": "memory_mode",
+                "data": {"mode": "extended_55k", **void_activity.snapshot()},
+            })
+        else:
+            self.memory.configure_budget(
+                max_messages=DEFAULT_MAX_MESSAGES,
+                max_tokens=DEFAULT_MAX_TOKENS,
+            )
+            self._broadcast({
+                "event": "memory_mode",
+                "data": {"mode": "standard_16k", **void_activity.snapshot()},
+            })
 
     def _build_turn_prompt(
         self,
@@ -261,17 +305,31 @@ INSTRUCCION DEL TURNO
 """.strip()
 
     @staticmethod
-    def _agent_options(agent_id: str) -> dict:
+    def _agent_options(agent_id: str, temperature_jitter: float = 0.0) -> dict:
         profile = ALL_AGENTS[agent_id]
         return {
-            "temperature": profile["temperature"],
+            "temperature": min(1.0, profile["temperature"] + temperature_jitter),
             "top_p": profile["top_p"],
             "top_k": profile["top_k"],
             "repeat_penalty": profile["repeat_penalty"],
             "repeat_last_n": profile["repeat_last_n"],
             "num_ctx": profile["num_ctx"],
             "num_predict": profile["num_predict"],
+            "num_gpu": profile["num_gpu"],
+            "frequency_penalty": profile.get("frequency_penalty", 1.4),
+            "presence_penalty": profile.get("presence_penalty", 0.8),
         }
+
+    @staticmethod
+    def _model_candidates(agent_id: str) -> list[str]:
+        profile = ALL_AGENTS[agent_id]
+        candidates = [profile["model"], *profile.get("fallback_models", ())]
+        unique: list[str] = []
+        for model in candidates:
+            model = str(model or "").strip()
+            if model and model not in unique:
+                unique.append(model)
+        return unique
 
     def _recent_generated_block(self, agent_id: str) -> str:
         recent = self._last_generated.get(agent_id, [])[-3:]
@@ -320,20 +378,22 @@ INSTRUCCION DEL TURNO
         recent = self._last_generated.get(agent_id, [])
 
         for attempt in range(1, OUTPUT_RETRIES + 2):
-            result = await self._ollama().chat(
-                agent_id=agent_id,
-                model=profile["model"],
-                system_prompt=profile["system_prompt"],
-                user_prompt=prompt,
-                options=self._agent_options(agent_id),
-            )
-            if result is None:
-                continue
+            temperature_jitter = 0.4 if attempt > 1 else 0.0
+            for model in self._model_candidates(agent_id):
+                result = await self._ollama().chat(
+                    agent_id=agent_id,
+                    model=model,
+                    system_prompt=profile["system_prompt"],
+                    user_prompt=prompt,
+                    options=self._agent_options(agent_id, temperature_jitter),
+                )
+                if result is None:
+                    continue
 
-            cleaned = clean_agent_text(agent_id, result.text)
-            if not is_bad_agent_output(agent_id, cleaned, recent):
-                self._register_generated(agent_id, cleaned)
-                return cleaned
+                cleaned = clean_agent_text(agent_id, result.text)
+                if not is_bad_agent_output(agent_id, cleaned, recent):
+                    self._register_generated(agent_id, cleaned)
+                    return cleaned
 
             prompt += (
                 "\n\nREINTENTO LOCAL\n"

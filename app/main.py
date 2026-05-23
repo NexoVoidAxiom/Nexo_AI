@@ -16,6 +16,7 @@ Hardware: GTX 1080 Ti (11GB) + i7-9700K + 32GB RAM
 import gc
 import json
 import re
+import time
 from pydantic import BaseModel
 import sys
 import asyncio
@@ -30,6 +31,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from starlette.background import BackgroundTask
 import uvicorn
 
 from app.config import SERVER_CONFIG, UPLOAD_CONFIG, TOKEN_ESTIMATION, GC_CONFIG
@@ -39,6 +41,7 @@ from app.data_processor import (
     process_file, estimate_tokens, save_upload, cleanup_file, truncate_to_token_limit,
 )
 from app.llm_handler import OllamaHandler
+from app.void_activity import void_activity
 from app.prompts import (
     build_architect_prompt,
     build_agent_a_prompt,
@@ -326,6 +329,38 @@ app.add_middleware(
     allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
 app.add_middleware(AuthMiddleware)
+
+
+@app.middleware("http")
+async def track_main_activity(request: Request, call_next):
+    path = request.url.path
+    is_chat_stream = (
+        request.method.upper() == "POST"
+        and path.startswith("/api/chats/")
+        and path.endswith("/stream")
+    )
+    if is_chat_stream:
+        void_activity.active_chat_streams += 1
+        void_activity.mark_chat()
+
+    if path == "/" or path.startswith(("/api/chats", "/api/upload", "/api/data", "/api/chat")):
+        void_activity.mark_main()
+    response = await call_next(request)
+
+    if is_chat_stream:
+        existing_background = response.background
+
+        async def release_chat_stream() -> None:
+            try:
+                if existing_background is not None:
+                    await existing_background()
+            finally:
+                void_activity.active_chat_streams = max(0, void_activity.active_chat_streams - 1)
+                void_activity.last_chat_activity = time.monotonic()
+
+        response.background = BackgroundTask(release_chat_stream)
+
+    return response
 
 # ─── ESTATICOS ────────────────────────────────────────────────────────────────
 static_dir = Path("static")
@@ -2489,6 +2524,8 @@ async def void_status(user: dict = Depends(get_current_user)):
         "message_count": len(void_session.message_history),
         "subscribers": len(void_session.subscribers),
         "is_admin": db.is_admin(user),
+        "memory_mode": "extended_55k" if void_session._extended_context_enabled else "standard_16k",
+        "activity": void_activity.snapshot(),
     }
 
 

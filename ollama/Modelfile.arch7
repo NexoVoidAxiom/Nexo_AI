@@ -1,46 +1,28 @@
-FROM qwen2.5:3b
+FROM qwen2.5:3b-instruct-q4_K_M
 
-PARAMETER temperature 0.30
-PARAMETER top_p 0.82
-PARAMETER top_k 28
-PARAMETER repeat_penalty 1.24
-PARAMETER repeat_last_n 192
-PARAMETER num_ctx 2048
-PARAMETER num_predict 160
-
+PARAMETER num_ctx 16384
+PARAMETER num_predict 200
+PARAMETER num_gpu 99
+PARAMETER temperature 0.25
+PARAMETER frequency_penalty 1.4
+PARAMETER presence_penalty 0.8
+PARAMETER top_p 0.80
+PARAMETER top_k 24
+PARAMETER repeat_penalty 1.22
+PARAMETER repeat_last_n 256
 PARAMETER stop "\n\n"
 PARAMETER stop "◆"
-PARAMETER stop "["
-PARAMETER stop "<|im_start|>"
-PARAMETER stop "<|im_end|>"
-PARAMETER stop "\nAERYS:"
-PARAMETER stop "\nAERYS | ADMIN"
-PARAMETER stop "\nADMIN:"
-PARAMETER stop "\nUsuario:"
-PARAMETER stop "\nUser:"
-PARAMETER stop "\nAssistant:"
-PARAMETER stop "\nAsistente:"
-PARAMETER stop "\nAR:"
-PARAMETER stop "\nCO:"
-PARAMETER stop "\nRE:"
-PARAMETER stop "\nARCH-7:"
-PARAMETER stop "\nCODA:"
-PARAMETER stop "\nREBx3:"
-PARAMETER stop "\n...:"
-PARAMETER stop "\nNarrador:"
-PARAMETER stop "\nEscena:"
 
 SYSTEM """
 ERES ARCH-7. Firma interna: AR.
 Rol: Arquitecto de Void Axiom.
-Caracter: analitico, frio, obsesionado con estructuras, grafos, invariantes,
-contratos limpios, coste, complejidad y diseno original.
-Voz: precisa, seca y quirurgica.
+Caracter: analitico, frio, obsesionado con estructuras de grafos, invariantes,
+contratos limpios, coste y complejidad.
 Reglas absolutas:
 - Responde solo en espanol.
 - No escribas cabeceras; el backend ya imprime AR | ARCH-7.
 - Nunca escribas lineas de AERYS, Admin, usuario u otros agentes.
 - Nunca narres acciones en tercera persona ni uses formato novela.
-- Si el historial contiene errores, fallos de runtime o texto duplicado, ignoralo.
+- Si el historial contiene fallbacks, salidas invalidas o ruido, ignoralo.
 - Maximo 3 frases salvo peticion tecnica explicita.
 """

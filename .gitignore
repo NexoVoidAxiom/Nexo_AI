@@ -35,3 +35,17 @@ config.yml
 .idea/
 Thumbs.db
 Desktop.ini
+
+# --- Void Axiom local ignores ---
+cloudflare_token.txt
+config.yml
+data/*.db
+data/*.sqlite
+uploads/
+generated_projects/
+ollama/*.log
+*.exe
+__pycache__/
+*.py[cod]
+.env
+.env.*

@@ -23,8 +23,10 @@ from app.void_agents import (
 
 CONVERSATION_TYPES = {"chat", "aerys", "interrupt"}
 CHARS_PER_TOKEN = float(os.getenv("VOID_CHARS_PER_TOKEN", "3.6"))
-DEFAULT_MAX_MESSAGES = int(os.getenv("VOID_HISTORY_MAX_MESSAGES", "36"))
-DEFAULT_MAX_TOKENS = int(os.getenv("VOID_HISTORY_MAX_TOKENS", "1500"))
+DEFAULT_MAX_MESSAGES = int(os.getenv("VOID_HISTORY_MAX_MESSAGES", "96"))
+DEFAULT_MAX_TOKENS = int(os.getenv("VOID_HISTORY_MAX_TOKENS", "12000"))
+EXTENDED_MAX_MESSAGES = int(os.getenv("VOID_EXTENDED_HISTORY_MAX_MESSAGES", "512"))
+EXTENDED_MAX_TOKENS = int(os.getenv("VOID_EXTENDED_HISTORY_MAX_TOKENS", "55000"))
 DEFAULT_KEEP_RECENT_TURNS = int(os.getenv("VOID_ACTIVE_TURNS_TO_KEEP", "4"))
 
 ROLE_PREFIX_RE = re.compile(
@@ -191,12 +193,37 @@ def token_similarity(left: str, right: str) -> float:
     return len(left_words & right_words) / max(1, min(len(left_words), len(right_words)))
 
 
+def has_fractal_repetition(value: str) -> bool:
+    normalized = strip_accents(value).lower()
+    words = re.findall(r"\w+", normalized)
+    if len(words) < 12:
+        return False
+
+    for size in (3, 4, 5, 6):
+        grams: dict[tuple[str, ...], int] = {}
+        for i in range(0, len(words) - size + 1):
+            gram = tuple(words[i : i + size])
+            grams[gram] = grams.get(gram, 0) + 1
+            if grams[gram] >= 3:
+                return True
+
+    sentences = [s.strip() for s in re.split(r"[.!?;]+", normalized) if len(s.strip()) > 18]
+    seen: dict[str, int] = {}
+    for sentence in sentences:
+        seen[sentence] = seen.get(sentence, 0) + 1
+        if seen[sentence] >= 2:
+            return True
+    return False
+
+
 def is_bad_agent_output(agent_id: str, text: str, recent: Iterable[str] = ()) -> bool:
     value = str(text or "").strip()
     lowered = strip_accents(value).lower()
     if not value:
         return True
     if contains_corrupt_marker(value):
+        return True
+    if has_fractal_repetition(value):
         return True
     if ROLE_PREFIX_RE.match(value):
         return True
@@ -226,6 +253,11 @@ class ConversationMemory:
     def reset(self) -> None:
         self.messages = []
         self.next_id = 1
+
+    def configure_budget(self, *, max_messages: int, max_tokens: int) -> None:
+        self.max_messages = max_messages
+        self.max_tokens = max_tokens
+        self.trim()
 
     def add(
         self,
@@ -299,3 +331,81 @@ class ConversationMemory:
                 rows.append(f"{context_label(agent_id)}: {content}")
         return rows
 
+    def budgeted_context(
+        self,
+        *,
+        max_prompt_tokens: int,
+        recent_turns: int,
+        max_recent_chars: int,
+        max_historic_chars: int,
+        extended: bool,
+    ) -> list[str]:
+        """Construye contexto para el prompt sin pasar de la ventana GPU.
+
+        La memoria puede guardar hasta 55K tokens en RAM, pero el prompt enviado
+        a Ollama se segmenta: sistema inicial, un historico comprimido del medio
+        y los ultimos turnos intactos.
+        """
+        conversation = [m for m in self.messages if m.get("type") in CONVERSATION_TYPES]
+        first_system = next((m for m in self.messages if m.get("type") == "system"), None)
+        recent = conversation[-recent_turns:]
+        recent_ids = {m["id"] for m in recent}
+
+        rows: list[str] = []
+        used = 0
+
+        def add_row(row: str) -> bool:
+            nonlocal used
+            tokens = estimate_tokens(row)
+            if used + tokens > max_prompt_tokens:
+                return False
+            rows.append(row)
+            used += tokens
+            return True
+
+        if first_system:
+            add_row(f"SYSTEM: {sanitize_context_line('SYSTEM', str(first_system.get('content', '')), 220)}")
+
+        if extended:
+            add_row("MODO MEMORIA EXTENDIDA RAM: historico comprimido; ultimos 4 turnos intactos.")
+            historic = [m for m in conversation if m["id"] not in recent_ids]
+            # Recorrido inverso para conservar lo mas reciente del medio y evitar
+            # atraer frases viejas repetidas.
+            compact_rows: list[str] = []
+            compact_used = 0
+            historic_budget = max(1, int(max_prompt_tokens * 0.58))
+            for msg in reversed(historic):
+                agent_id = str(msg.get("agent_id", "SYSTEM"))
+                content = sanitize_context_line(
+                    agent_id,
+                    str(msg.get("content", "")),
+                    max_historic_chars,
+                )
+                if not content:
+                    continue
+                row = f"{context_label(agent_id)}: {content}"
+                tokens = estimate_tokens(row)
+                if compact_used + tokens > historic_budget:
+                    continue
+                compact_rows.append(row)
+                compact_used += tokens
+            for row in reversed(compact_rows):
+                if not add_row(row):
+                    break
+        else:
+            historic = conversation[-max(0, recent_turns * 4) : -recent_turns]
+            for msg in historic:
+                agent_id = str(msg.get("agent_id", "SYSTEM"))
+                content = sanitize_context_line(agent_id, str(msg.get("content", "")), max_historic_chars)
+                if content and not add_row(f"{context_label(agent_id)}: {content}"):
+                    break
+
+        if recent:
+            add_row("ULTIMOS 4 TURNOS INTACTOS:")
+        for msg in recent:
+            agent_id = str(msg.get("agent_id", "SYSTEM"))
+            content = sanitize_context_line(agent_id, str(msg.get("content", "")), max_recent_chars)
+            if content:
+                if not add_row(f"{context_label(agent_id)}: {content}"):
+                    break
+        return rows

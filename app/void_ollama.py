@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import os
 import random
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -30,8 +31,8 @@ def _normalize_base_url(value: str) -> str:
 def _normalize_keep_alive(value: str) -> str:
     value = str(value).strip()
     if value.lstrip("-").isdigit():
-        return value
-    return value or "-1"
+        return f"{value}s"
+    return value or "-1s"
 
 
 @dataclass(frozen=True)
@@ -50,11 +51,12 @@ class OllamaChatClient:
         )
         self.keep_alive = _normalize_keep_alive(os.getenv("OLLAMA_KEEP_ALIVE", "-1"))
         self.max_retries = int(os.getenv("VOID_OLLAMA_HTTP_RETRIES", "2"))
-        concurrency = int(os.getenv("VOID_OLLAMA_CONCURRENCY", "1"))
-        limits = httpx.Limits(max_connections=8, max_keepalive_connections=4)
+        concurrency = int(os.getenv("VOID_OLLAMA_CONCURRENCY", "4"))
+        limits = httpx.Limits(max_connections=16, max_keepalive_connections=8)
         self._client = httpx.AsyncClient(timeout=90.0, limits=limits)
         self._gpu_gate = asyncio.Semaphore(max(1, concurrency))
-        self._last_warning: dict[str, str] = {}
+        self._warned: set[tuple[str, str]] = set()
+        self._model_cache: tuple[float, set[str]] = (0.0, set())
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -69,6 +71,10 @@ class OllamaChatClient:
         options: dict[str, Any],
     ) -> OllamaResult | None:
         runtime_system = f"{BASE_SYSTEM_GUARD}\n\nIDENTIDAD ACTIVA:\n{system_prompt}".strip()
+        if not await self.model_available(model):
+            self._warn_once(agent_id, f"model_not_installed:{model}")
+            return None
+
         payload = {
             "model": model,
             "messages": [
@@ -94,6 +100,12 @@ class OllamaChatClient:
                     )
                 if resp.status_code >= 400:
                     last_reason = f"http_{resp.status_code}"
+                    if resp.status_code == 404:
+                        self._warn_once(agent_id, f"model_not_found:{model}")
+                        return None
+                    if resp.status_code == 400 and self._strip_unsupported_options(payload, resp.text):
+                        self._warn_once(agent_id, "native_options_downgraded")
+                        continue
                     await self._sleep_before_retry(attempt)
                     continue
 
@@ -136,13 +148,59 @@ class OllamaChatClient:
         lowered = text.lower()
         return any(marker in lowered for marker in CORRUPT_RESPONSE_MARKERS)
 
+    @staticmethod
+    def _strip_unsupported_options(payload: dict[str, Any], error_text: str) -> bool:
+        """Ollama native /api/chat may lag OpenAI-compatible fields.
+
+        We keep frequency/presence penalties in config and Modelfiles as requested,
+        but if the local native API rejects them, we remove only those fields and
+        retry. The anti-loop filter still enforces the behavior at backend level.
+        """
+        lowered = str(error_text or "").lower()
+        options = payload.get("options")
+        if not isinstance(options, dict):
+            return False
+        changed = False
+        for key in ("frequency_penalty", "presence_penalty"):
+            if key in options and (key in lowered or "invalid" in lowered or "unknown" in lowered):
+                options.pop(key, None)
+                changed = True
+        return changed
+
+    async def model_available(self, model: str) -> bool:
+        names = await self._available_models()
+        normalized = str(model or "").strip()
+        if normalized in names:
+            return True
+        if not normalized.endswith(":latest") and f"{normalized}:latest" in names:
+            return True
+        short = normalized.removesuffix(":latest")
+        return any(item.removesuffix(":latest") == short for item in names)
+
+    async def _available_models(self) -> set[str]:
+        cached_at, cached_names = self._model_cache
+        if cached_names and time.monotonic() - cached_at < 20.0:
+            return cached_names
+        try:
+            resp = await self._client.get(f"{self.base_url}/api/tags", timeout=5.0)
+            resp.raise_for_status()
+            names = {
+                str(item.get("name") or item.get("model") or "").strip()
+                for item in resp.json().get("models", [])
+            }
+            names.discard("")
+            self._model_cache = (time.monotonic(), names)
+            return names
+        except Exception:
+            return cached_names
+
     async def _sleep_before_retry(self, attempt: int) -> None:
         if attempt <= self.max_retries:
             await asyncio.sleep(0.18 * attempt + random.uniform(0.03, 0.18))
 
     def _warn_once(self, agent_id: str, reason: str) -> None:
-        if self._last_warning.get(agent_id) == reason:
+        key = (agent_id, reason)
+        if key in self._warned:
             return
-        self._last_warning[agent_id] = reason
+        self._warned.add(key)
         print(f"[VOID][WARN] {agent_id}: output suppressed ({reason})", flush=True)
-

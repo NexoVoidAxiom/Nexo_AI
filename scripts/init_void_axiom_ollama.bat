@@ -29,17 +29,15 @@ if not defined GTX_ID (
 tasklist /FI "IMAGENAME eq ollama.exe" | find /I "ollama.exe" >nul
 if not errorlevel 1 (
     echo [ERROR] Ollama ya esta ejecutandose.
-    echo         Cierralo antes para garantizar aislamiento por CUDA_VISIBLE_DEVICES.
+    echo         Cierralo antes para garantizar que CUDA_VISIBLE_DEVICES sea respetado.
     exit /b 1
 )
 
-rem Un solo runner por modelo evita multiplicar KV cache en 11GB.
-rem OLLAMA_MAX_LOADED_MODELS=4 mantiene los cuatro perfiles calientes.
 set "CUDA_VISIBLE_DEVICES=%GTX_ID%"
-set "OLLAMA_NUM_PARALLEL=1"
+set "OLLAMA_NUM_PARALLEL=4"
 set "OLLAMA_MAX_LOADED_MODELS=4"
 set "OLLAMA_KEEP_ALIVE=-1"
-set "OLLAMA_CONTEXT_LENGTH=2048"
+set "OLLAMA_CONTEXT_LENGTH=16384"
 set "OLLAMA_FLASH_ATTENTION=1"
 set "OLLAMA_KV_CACHE_TYPE=f16"
 set "OLLAMA_SCHED_SPREAD=0"
@@ -48,7 +46,7 @@ echo [OK] GTX 1080 Ti detectada como GPU fisica ID %GTX_ID%.
 echo [OK] CUDA_VISIBLE_DEVICES=%CUDA_VISIBLE_DEVICES%
 echo [OK] OLLAMA_NUM_PARALLEL=%OLLAMA_NUM_PARALLEL%
 echo [OK] OLLAMA_MAX_LOADED_MODELS=%OLLAMA_MAX_LOADED_MODELS%
-echo [OK] OLLAMA_KEEP_ALIVE=%OLLAMA_KEEP_ALIVE%
+echo [OK] OLLAMA_CONTEXT_LENGTH=%OLLAMA_CONTEXT_LENGTH%
 
 where ollama >nul 2>nul
 if errorlevel 1 (
@@ -72,28 +70,28 @@ exit /b 1
 :OLLAMA_READY
 echo [OK] Ollama activo.
 
-echo [INFO] Descargando bases ligeras cuantizadas desde Ollama si faltan...
-ollama pull qwen2.5:3b
+echo [INFO] Preparando bases Qwen 2.5 cuantizadas...
+call :ensure_model "qwen2.5:3b-instruct-q4_K_M" "qwen2.5:3b" "qwen2.5-coder:3b"
 if errorlevel 1 exit /b 1
-ollama pull qwen2.5-coder:3b
+call :ensure_model "qwen2.5-coder:3b-instruct-q4_K_M" "qwen2.5-coder:3b" ""
 if errorlevel 1 exit /b 1
-ollama pull qwen2.5:1.5b
+call :ensure_model "qwen2.5:1.5b-instruct-q4_K_M" "qwen2.5:1.5b" "qwen2.5-coder:1.5b"
 if errorlevel 1 exit /b 1
 
 echo [INFO] Creando perfiles Void Axiom...
-ollama create void-arch7 -f "ollama\Modelfile.arch7"
+call :create_profile "void-arch7" "ollama\Modelfile.arch7"
 if errorlevel 1 exit /b 1
-ollama create void-coda -f "ollama\Modelfile.coda"
+call :create_profile "void-coda" "ollama\Modelfile.coda"
 if errorlevel 1 exit /b 1
-ollama create void-rebx3 -f "ollama\Modelfile.rebx3"
+call :create_profile "void-rebx3" "ollama\Modelfile.rebx3"
 if errorlevel 1 exit /b 1
-ollama create void-intruder -f "ollama\Modelfile.intruder"
+call :create_profile "void-intruder" "ollama\Modelfile.intruder"
 if errorlevel 1 exit /b 1
 
-echo [INFO] Precargando los 4 modelos con keep_alive=-1...
+echo [INFO] Precargando los 4 modelos con keep_alive=-1s y num_ctx=16384...
 for %%M in (void-arch7 void-coda void-rebx3 void-intruder) do (
     echo   - %%M
-    curl.exe -s http://127.0.0.1:11434/api/generate -H "Content-Type: application/json" -d "{\"model\":\"%%M\",\"prompt\":\"ping\",\"stream\":false,\"keep_alive\":\"-1\",\"options\":{\"num_predict\":1,\"num_ctx\":256}}" >nul
+    curl.exe -s http://127.0.0.1:11434/api/generate -H "Content-Type: application/json" -d "{\"model\":\"%%M\",\"prompt\":\"ping\",\"stream\":false,\"keep_alive\":\"-1s\",\"options\":{\"num_predict\":1,\"num_ctx\":16384,\"num_gpu\":99}}" >nul
 )
 
 echo [INFO] Modelos residentes segun Ollama:
@@ -106,3 +104,57 @@ echo   python -m uvicorn app.main:app --host 0.0.0.0 --port 8080
 echo ============================================================
 
 endlocal
+exit /b 0
+
+:ensure_model
+set "EXACT=%~1"
+set "CANON=%~2"
+set "ALT=%~3"
+
+ollama show "%EXACT%" >nul 2>nul
+if not errorlevel 1 (
+    echo [OK] %EXACT% ya existe.
+    exit /b 0
+)
+
+echo [INFO] Intentando pull exacto: %EXACT%
+ollama pull "%EXACT%" >nul 2>nul
+if not errorlevel 1 (
+    echo [OK] %EXACT% descargado.
+    exit /b 0
+)
+
+echo [WARN] El tag exacto no existe en esta libreria de Ollama. Usando alias local.
+echo [INFO] Descargando base canonica: %CANON%
+ollama pull "%CANON%"
+if errorlevel 1 (
+    if defined ALT (
+        echo [WARN] Base canonica no disponible. Probando alternativa: %ALT%
+        set "CANON=%ALT%"
+        ollama pull "!CANON!"
+        if errorlevel 1 exit /b 1
+    ) else (
+        exit /b 1
+    )
+)
+
+set "TMP_MODELFILE=%TEMP%\void_alias_%RANDOM%_%RANDOM%.Modelfile"
+> "%TMP_MODELFILE%" echo FROM !CANON!
+ollama create "%EXACT%" -f "%TMP_MODELFILE%"
+set "CREATE_CODE=%ERRORLEVEL%"
+del "%TMP_MODELFILE%" >nul 2>nul
+exit /b %CREATE_CODE%
+
+:create_profile
+set "PROFILE=%~1"
+set "MODELFILE=%~2"
+ollama create "%PROFILE%" -f "%MODELFILE%"
+if not errorlevel 1 exit /b 0
+
+echo [WARN] Creacion estricta fallo. Reintentando sin penalties OpenAI-only para compatibilidad nativa...
+set "TMP_PROFILE=%TEMP%\void_profile_%RANDOM%_%RANDOM%.Modelfile"
+findstr /V /C:"PARAMETER frequency_penalty" /C:"PARAMETER presence_penalty" "%MODELFILE%" > "%TMP_PROFILE%"
+ollama create "%PROFILE%" -f "%TMP_PROFILE%"
+set "PROFILE_CODE=%ERRORLEVEL%"
+del "%TMP_PROFILE%" >nul 2>nul
+exit /b %PROFILE_CODE%
