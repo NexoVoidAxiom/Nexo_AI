@@ -1944,8 +1944,8 @@
       <div class="admin-section" id="asec-codes">
         <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
           <select id="codeType" style="padding:6px 10px;background:var(--bg-2);border:1px solid var(--border-mid);border-radius:var(--r);color:var(--text);font-size:12px;font-family:var(--font)">
-            <option value="cafe">☕ Café (€3)</option><option value="pizza">🍕 Pizza (€7)</option>
-            <option value="mes">📅 1 Mes (€10)</option><option value="trimestre">🏆 Trimestre (€25)</option>
+            <option value="plan_max">⭐ Plan MAX</option>
+            <option value="tester">🧪 Plan TESTER</option>
           </select>
           <input id="codeNote" placeholder="Nota (opcional)" style="flex:1;min-width:120px;padding:6px 10px;background:var(--bg-2);border:1px solid var(--border-mid);border-radius:var(--r);color:var(--text);font-size:12px;outline:none;font-family:var(--font)">
           <button onclick="genCode()" class="btn" style="background:rgba(0,200,255,0.1);border-color:rgba(0,200,255,0.3);color:var(--accent)">+ Generar código</button>
@@ -2060,20 +2060,20 @@
           <button class="don-intent-btn" onclick="submitPurchaseIntent()">✉️ Registrar intención de compra</button>
           <p class="don-intent-note">Opcional: guarda tu solicitud para que Aerys la procese.</p>
         </div>
-        <div>
-          <div class="plan-section-title">🏆 Leaderboard de Pioneros</div>
-          <div id="leaderboardContainer"><div class="admin-loading">Cargando...</div></div>
-        </div>
         <!-- Redención de código -->
         <div class="don-redeem-card">
-          <div class="don-redeem-title">🔑 ¿Ya compraste? Activa tu plan</div>
-          <p class="don-redeem-desc">Introduce el código que recibiste tras tu compra:</p>
+          <div class="don-redeem-title">🔑 ¿Tienes un código? Actívalo aquí</div>
+          <p class="don-redeem-desc">Introduce el código que conseguiste para activar tu plan:</p>
           <div class="don-redeem-row">
             <input class="don-redeem-input" id="redeemCodeInput" placeholder="XXXX-XXXX-XXXX" maxlength="20"
               oninput="this.value=this.value.toUpperCase()" onkeydown="if(event.key==='Enter')activateCode()">
             <button class="don-redeem-btn" onclick="activateCode()" id="redeemBtn">Activar</button>
           </div>
           <div class="don-redeem-msg" id="redeemMsg" style="display:none"></div>
+        </div>
+        <div>
+          <div class="plan-section-title">🏆 Leaderboard de Pioneros</div>
+          <div id="leaderboardContainer"><div class="admin-loading">Cargando...</div></div>
         </div>
       </div>
 
@@ -2857,7 +2857,7 @@ async function loadCodes(){
 }
 async function genCode(){
     var sel=$('codeType');var note=$('codeNote');
-    var tier=sel?sel.value:'mes';var planMap={cafe:'plan_max',pizza:'plan_max',mes:'plan_max',trimestre:'plan_max'};
+    var tier=sel?sel.value:'plan_max';var planMap={plan_max:'plan_max',tester:'plan_tester'};
     var plan=planMap[tier]||'plan_max';
     var noteText=note?note.value.trim():'';
     try{
