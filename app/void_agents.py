@@ -94,7 +94,7 @@ AGENTS: dict[str, dict] = {
     "ARCH-7": {
         "sigil":       "AR",
         "display":     "AR | ARCH-7",
-        "model":       "arch7_void",
+        "model":       "qwen2.5-coder:7b",
         "color":       "#00BFFF",
         "prompt":      ARCH7_PROMPT,
         "num_ctx":     DEFAULT_NUM_CTX,
@@ -105,7 +105,7 @@ AGENTS: dict[str, dict] = {
     "CODA": {
         "sigil":       "CO",
         "display":     "CO | CODA",
-        "model":       "coda_void",
+        "model":       "qwen2.5-coder:7b",
         "color":       "#00FF41",
         "prompt":      CODA_PROMPT,
         "num_ctx":     DEFAULT_NUM_CTX,
@@ -116,7 +116,7 @@ AGENTS: dict[str, dict] = {
     "REBx3": {
         "sigil":       "RE",
         "display":     "RE | REBx3",
-        "model":       "rebx3_void",
+        "model":       "qwen2.5-coder:7b",
         "color":       "#FF4500",
         "prompt":      REBX3_PROMPT,
         "num_ctx":     DEFAULT_NUM_CTX,
@@ -127,7 +127,7 @@ AGENTS: dict[str, dict] = {
     INTRUDER_ID: {
         "sigil":       "⬡",
         "display":     "⬡ | ...",
-        "model":       "intruder_void",
+        "model":       "qwen2.5-coder:7b",
         "color":       "#8B00FF",
         "prompt":      INTRUDER_PROMPT,
         "num_ctx":     INTRUDER_NUM_CTX,
@@ -137,7 +137,7 @@ AGENTS: dict[str, dict] = {
     },
 }
 
-ALL_AGENTS = set(AGENTS.keys())
+ALL_AGENTS = AGENTS  # dict — soporta tanto "in" checks como subscript [agent_id]
 
 
 # ═══════════════════════════════════════════════════════════════════════════

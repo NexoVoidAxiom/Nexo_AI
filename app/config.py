@@ -171,17 +171,32 @@ AUTH_TOKEN = os.getenv("AUTH_TOKEN", "mi-analisis-ia-2024")
 UPLOAD_CONFIG = {
     "max_file_size_mb": 5000,  # Sin limite practico (5GB)
     "allowed_extensions": [
+        # ── Código fuente ──
         ".py", ".java", ".cpp", ".c", ".h", ".hpp", ".cs", ".rb", ".go", ".rs",
         ".php", ".swift", ".kt", ".scala", ".pl", ".pm", ".r",
         ".js", ".ts", ".jsx", ".tsx", ".html", ".htm", ".css", ".scss", ".sass",
         ".less", ".vue", ".svelte",
-        ".csv", ".json", ".jsonl", ".xml", ".yaml", ".yml", ".toml", ".ini",
-        ".cfg", ".env",
-        ".txt", ".log", ".md", ".rst",
         ".luau", ".lua", ".glsl", ".shader", ".hlsl",
         ".sh", ".bat", ".ps1", ".psm1", ".dockerfile", ".tf",
+        # ── Datos estructurados ──
+        ".csv", ".tsv",
+        ".json", ".jsonl",
+        ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".env",
         ".sql", ".db", ".sqlite",
-        ".tsv",
+        # ── Texto plano / Docs ──
+        ".txt", ".log", ".md", ".rst",
+        # ── Office / Documentos ──
+        ".pdf",
+        ".docx", ".doc",
+        ".xlsx", ".xls", ".xlsm", ".ods",
+        ".pptx", ".ppt",
+        ".odt", ".rtf", ".epub",
+        # ── Imágenes (OCR + descripción) ──
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif",
+        # ── Archivos comprimidos ──
+        ".zip", ".tar", ".gz", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".rar", ".7z",
+        # ── Notebooks / Otros ──
+        ".ipynb",
     ],
     "temp_dir": "uploads",
 }

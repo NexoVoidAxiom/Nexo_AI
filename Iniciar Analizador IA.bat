@@ -57,6 +57,12 @@ if /i "%op%"=="7" goto CERRAR_WEB
 if /i "%op%"=="8" goto CERRAR_TUNEL
 if /i "%op%"=="9" goto CERRAR_TODO
 if /i "%op%"=="0" exit /b 0
+if /i "%op%"=="E" goto ESCANEAR
+if /i "%op%"=="e" goto ESCANEAR
+if /i "%op%"=="K" goto DESCARGAR_PDFS
+if /i "%op%"=="k" goto DESCARGAR_PDFS
+if /i "%op%"=="S" goto ESTUDIAR
+if /i "%op%"=="s" goto ESTUDIAR
 goto MENU
 
 :INSTALAR
@@ -255,6 +261,68 @@ taskkill /f /im ngrok.exe >nul 2>&1
 if %errorlevel% equ 0 (echo  [OK] Tunel ngrok cerrado) else (echo  [--] No habia tunel ngrok)
 echo  Para Pinggy pulsa Ctrl+C en esa ventana.
 echo. & pause & goto MENU
+
+:ESCANEAR
+cls
+echo ============================================
+echo   ESCANEANDO SISTEMA VOID AXIOM
+echo ============================================
+echo.
+echo  Comprobando modulos, conexiones, archivos...
+echo  Esto tomara unos segundos...
+echo.
+python scripts\scan_check.py
+if %errorlevel% neq 0 (
+    echo.
+    echo  [WARN] No se pudo ejecutar el escaner.
+)
+echo.
+pause
+goto MENU
+
+:DESCARGAR_PDFS
+cls
+echo ============================================
+echo   DESCARGANDO PDFS A KNOWLEDGE BASE
+echo ============================================
+echo.
+echo  [A] TODO (recomendado)
+echo  [B] Solo libros curados
+echo  [C] Solo tutoriales web
+echo  [D] Solo papers arXiv
+echo  [L] Solo un lenguaje
+echo  [V] Solo reporte
+echo  [R] Volver
+echo.
+set /p pdf_op=Opcion: 
+if /i "%pdf_op%"=="A" python training\pdf_scraper.py --limit 30
+if /i "%pdf_op%"=="B" python training\pdf_scraper.py --books --limit 10
+if /i "%pdf_op%"=="C" python training\pdf_scraper.py --tutorials --limit 20
+if /i "%pdf_op%"=="D" python training\pdf_scraper.py --arxiv --topics --limit 15
+if /i "%pdf_op%"=="L" set /p LANG=Lenguaje: & python training\pdf_scraper.py --language %LANG% --limit 10
+if /i "%pdf_op%"=="V" python training\pdf_scraper.py --report
+if /i "%pdf_op%"=="R" goto MENU
+if not "%pdf_op%"=="" pause
+goto MENU
+
+:ESTUDIAR
+cls
+echo ============================================
+echo   MODO ESTUDIO - GENERANDO QandA
+echo ============================================
+echo.
+echo  [1] Estudio completo
+echo  [2] Vista previa (dry-run)
+echo  [3] Con limite (max 5)
+echo  [R] Volver
+echo.
+set /p est_op=Opcion: 
+if /i "%est_op%"=="1" python training\study_engine.py --model qwen2.5-coder:14b --workers 1 --source D:\VOID\knowledge_base --qa-per-chunk 2
+if /i "%est_op%"=="2" python training\study_engine.py --model qwen2.5-coder:14b --workers 1 --source D:\VOID\knowledge_base --dry-run
+if /i "%est_op%"=="3" python training\study_engine.py --model qwen2.5-coder:14b --workers 1 --source D:\VOID\knowledge_base --limit 5
+if /i "%est_op%"=="R" goto MENU
+if not "%est_op%"=="" pause
+goto MENU
 
 :CERRAR_TODO
 echo  [..] Cerrando servidor y tuneles...

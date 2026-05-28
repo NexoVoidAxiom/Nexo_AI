@@ -1,4 +1,4 @@
-FROM qwen2.5:1.5b-instruct-q4_K_M
+FROM qwen2.5-coder:3b
 
 # ── Parámetros: máxima creatividad, mínima inercia ────────────────────────────
 # Modelo más pequeño → temperatura un poco más alta para salidas crípticas únicas

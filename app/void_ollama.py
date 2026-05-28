@@ -231,7 +231,7 @@ class VoidOllamaClient:
             "model":    model,
             "messages": messages,
             "stream":   False,
-            "keep_alive": "-1",
+            "keep_alive": -1,
             "options": {
                 "temperature":  temp,
                 "num_predict":  agent["num_predict"],
@@ -309,6 +309,52 @@ class VoidOllamaClient:
         if key not in self._warned:
             self._warned.add(key)
             logger.warning(f"[VOID] {agent_id}: suprimido ({reason})")
+
+
+# ── API de agente individual (usada por agent_chat._generate) ──────────────
+
+    async def chat(
+        self,
+        agent_id:      str,
+        model:         str,
+        system_prompt: str,
+        user_prompt:   str,
+        options:       dict | None = None,
+    ) -> "OllamaResult | None":
+        """
+        Llamada de turno único para un agente concreto.
+
+        Interfaz utilizada por AgentSession._generate() en agent_chat.py.
+        Construye el payload, llama a Ollama, sanitiza y devuelve OllamaResult.
+        Devuelve None si la respuesta está vacía o contaminada.
+        """
+        options = options or {}
+
+        # Construimos un dict compatible con _raw_http_call
+        agent_compat = {
+            "num_predict": options.get("num_predict", 256),
+            "num_ctx":     options.get("num_ctx", 4096),
+            "num_gpu":     options.get("num_gpu", 33),
+        }
+        temp = float(options.get("temperature", 0.7))
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_prompt},
+        ]
+
+        async with self._gpu_gate:
+            raw = await self._raw_http_call(agent_id, model, messages, temp, agent_compat)
+
+        if raw is None:
+            return None
+
+        rejection = self._sanitize(raw, [])
+        if rejection:
+            logger.warning(f"[{agent_id}] chat() respuesta rechazada ({rejection})")
+            return None
+
+        return OllamaResult(agent_id=agent_id, text=raw.strip(), attempts=1)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

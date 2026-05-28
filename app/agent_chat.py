@@ -37,6 +37,7 @@ from app.void_memory import (
     ConversationMemory,
     clean_agent_text,
     is_bad_agent_output,
+    is_echo_of_recent,
 )
 from app.void_activity import void_activity
 from app.void_ollama import OllamaChatClient
@@ -154,11 +155,11 @@ class AgentSession:
     ) -> dict | None:
         content = str(content or "").strip()
         if agent_id in ALL_AGENTS:
-            content = clean_agent_text(agent_id, content)
+            content = clean_agent_text(content)
             # _generate() already checked repetition before registering the text.
             # Rechecking against _last_generated here would compare the message
             # with itself and suppress valid agent turns.
-            if is_bad_agent_output(agent_id, content, ()):
+            if is_bad_agent_output(content):
                 self._log_suppressed(agent_id, "post_validation")
                 return None
 
@@ -285,7 +286,7 @@ class AgentSession:
 
         return f"""
 CONTRATO DE IDENTIDAD DEL TURNO
-{profile["system_prompt"]}
+{profile["prompt"]}
 
 CONTRATO DE SALIDA
 - Escribe solo el mensaje final del agente activo.
@@ -309,16 +310,16 @@ INSTRUCCION DEL TURNO
     def _agent_options(agent_id: str, temperature_jitter: float = 0.0) -> dict:
         profile = ALL_AGENTS[agent_id]
         return {
-            "temperature": min(1.0, profile["temperature"] + temperature_jitter),
-            "top_p": profile["top_p"],
-            "top_k": profile["top_k"],
-            "repeat_penalty": profile["repeat_penalty"],
-            "repeat_last_n": profile["repeat_last_n"],
-            "num_ctx": profile["num_ctx"],
-            "num_predict": profile["num_predict"],
-            "num_gpu": profile["num_gpu"],
+            "temperature":       min(1.0, profile["temperature"] + temperature_jitter),
+            "top_p":             profile.get("top_p", 0.9),
+            "top_k":             profile.get("top_k", 40),
+            "repeat_penalty":    profile.get("repeat_penalty", 1.1),
+            "repeat_last_n":     profile.get("repeat_last_n", 64),
+            "num_ctx":           profile["num_ctx"],
+            "num_predict":       profile["num_predict"],
+            "num_gpu":           profile["num_gpu"],
             "frequency_penalty": profile.get("frequency_penalty", 1.4),
-            "presence_penalty": profile.get("presence_penalty", 0.8),
+            "presence_penalty":  profile.get("presence_penalty", 0.8),
         }
 
     @staticmethod
@@ -384,15 +385,15 @@ INSTRUCCION DEL TURNO
                 result = await self._ollama().chat(
                     agent_id=agent_id,
                     model=model,
-                    system_prompt=profile["system_prompt"],
+                    system_prompt=profile["prompt"],
                     user_prompt=prompt,
                     options=self._agent_options(agent_id, temperature_jitter),
                 )
                 if result is None:
                     continue
 
-                cleaned = clean_agent_text(agent_id, result.text)
-                if not is_bad_agent_output(agent_id, cleaned, recent):
+                cleaned = clean_agent_text(result.text)
+                if not is_bad_agent_output(cleaned) and not is_echo_of_recent(cleaned, self.memory.recent_messages(8)):
                     self._register_generated(agent_id, cleaned)
                     return cleaned
 

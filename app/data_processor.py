@@ -4,6 +4,7 @@ Procesador de Datos Optimizado
 - Limpieza y compresión de datos para maximizar densidad de información
 - Procesamiento paralelizado para i7-9700K (8 núcleos)
 - Recolección de basura explícita para liberar RAM inmediatamente
+- Soporte completo: PDF, DOCX, XLSX, PPTX, imágenes (OCR), ZIP y más
 """
 import gc
 import json
@@ -11,6 +12,9 @@ import csv
 import io
 import os
 import uuid
+import zipfile
+import tarfile
+import tempfile
 from pathlib import Path
 from typing import Optional, Tuple
 import pandas as pd
@@ -224,35 +228,452 @@ def truncate_to_token_limit(text: str, max_tokens: int = None) -> Tuple[str, int
     return result, final_tokens
 
 
-def process_file(filepath: str) -> Tuple[str, int, dict]:
-    """Dispatcher: procesa cualquier archivo según su extensión.
+def _try_import(module: str):
+    """Importa un módulo de forma segura; retorna None si no está instalado."""
+    import importlib
+    try:
+        return importlib.import_module(module)
+    except ImportError:
+        return None
+
+
+def process_pdf(filepath: str) -> Tuple[str, int, dict]:
+    """Extrae texto de un PDF usando pypdf o pdfplumber como fallback."""
+    text_parts = []
+    num_pages = 0
+
+    # Intentar con pypdf primero
+    pypdf = _try_import("pypdf")
+    if pypdf:
+        try:
+            reader = pypdf.PdfReader(filepath)
+            num_pages = len(reader.pages)
+            for i, page in enumerate(reader.pages):
+                page_text = page.extract_text() or ""
+                if page_text.strip():
+                    text_parts.append(f"[Página {i+1}]\n{page_text}")
+        except Exception as e:
+            text_parts = []
+
+    # Fallback: pdfplumber
+    if not text_parts:
+        pdfplumber = _try_import("pdfplumber")
+        if pdfplumber:
+            try:
+                with pdfplumber.open(filepath) as pdf:
+                    num_pages = len(pdf.pages)
+                    for i, page in enumerate(pdf.pages):
+                        page_text = page.extract_text() or ""
+                        if page_text.strip():
+                            text_parts.append(f"[Página {i+1}]\n{page_text}")
+            except Exception:
+                pass
+
+    if not text_parts:
+        text = f"[PDF: {Path(filepath).name} — {num_pages} páginas. No se pudo extraer texto (posiblemente escaneado o protegido).]"
+    else:
+        text = f"[PDF: {num_pages} páginas]\n\n" + "\n\n".join(text_parts)
+
+    tokens = estimate_tokens(text)
+    metadata = {"pages": num_pages, "extracted_pages": len(text_parts)}
+    return text, tokens, metadata
+
+
+def process_docx(filepath: str) -> Tuple[str, int, dict]:
+    """Extrae texto de un archivo Word .docx."""
+    docx = _try_import("docx")
+    if docx is None:
+        # Fallback: python-docx se importa como 'docx'
+        try:
+            import docx as docx_module
+        except ImportError:
+            text = f"[DOCX: {Path(filepath).name} — módulo python-docx no instalado]"
+            return text, estimate_tokens(text), {"error": "missing python-docx"}
+        docx = docx_module
+    try:
+        import docx as docx_module
+        doc = docx_module.Document(filepath)
+        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+        # Extraer tablas también
+        table_texts = []
+        for table in doc.tables:
+            rows = []
+            for row in table.rows:
+                rows.append(" | ".join(cell.text.strip() for cell in row.cells))
+            table_texts.append("\n".join(rows))
+        full_text = "\n".join(paragraphs)
+        if table_texts:
+            full_text += "\n\n[TABLAS]\n" + "\n\n".join(table_texts)
+        metadata = {"paragraphs": len(paragraphs), "tables": len(doc.tables)}
+        return full_text, estimate_tokens(full_text), metadata
+    except Exception as e:
+        text = f"[DOCX: Error al procesar {Path(filepath).name}: {e}]"
+        return text, estimate_tokens(text), {"error": str(e)}
+
+
+def process_xlsx(filepath: str) -> Tuple[str, int, dict]:
+    """Extrae datos de un Excel .xlsx/.xls/.ods."""
+    ext = Path(filepath).suffix.lower()
+    try:
+        if ext == ".xls":
+            dfs = pd.read_excel(filepath, engine="xlrd", sheet_name=None)
+        elif ext == ".ods":
+            dfs = pd.read_excel(filepath, engine="odf", sheet_name=None)
+        else:
+            dfs = pd.read_excel(filepath, sheet_name=None)
+
+        parts = []
+        sheet_summaries = []
+        for sheet_name, df in dfs.items():
+            df = df.fillna("")
+            parts.append(f"[Hoja: {sheet_name} — {len(df)} filas × {len(df.columns)} columnas]\n{optimize_dataset_for_llm(df)}")
+            sheet_summaries.append({"name": sheet_name, "rows": len(df), "cols": len(df.columns)})
+        text = "\n\n".join(parts)
+        metadata = {"sheets": sheet_summaries, "total_sheets": len(dfs)}
+        return text, estimate_tokens(text), metadata
+    except Exception as e:
+        text = f"[Excel: Error al procesar {Path(filepath).name}: {e}]"
+        return text, estimate_tokens(text), {"error": str(e)}
+
+
+def process_pptx(filepath: str) -> Tuple[str, int, dict]:
+    """Extrae texto de un PowerPoint .pptx."""
+    try:
+        from pptx import Presentation
+        prs = Presentation(filepath)
+        slides_text = []
+        for i, slide in enumerate(prs.slides, 1):
+            slide_parts = []
+            for shape in slide.shapes:
+                if hasattr(shape, "text") and shape.text.strip():
+                    slide_parts.append(shape.text.strip())
+            if slide_parts:
+                slides_text.append(f"[Diapositiva {i}]\n" + "\n".join(slide_parts))
+        text = f"[PPTX: {len(prs.slides)} diapositivas]\n\n" + "\n\n".join(slides_text)
+        metadata = {"slides": len(prs.slides), "slides_with_text": len(slides_text)}
+        return text, estimate_tokens(text), metadata
+    except ImportError:
+        text = f"[PPTX: {Path(filepath).name} — módulo python-pptx no instalado]"
+        return text, estimate_tokens(text), {"error": "missing python-pptx"}
+    except Exception as e:
+        text = f"[PPTX: Error al procesar {Path(filepath).name}: {e}]"
+        return text, estimate_tokens(text), {"error": str(e)}
+
+
+def process_image(filepath: str) -> Tuple[str, int, dict]:
+    """Obtiene metadatos de imagen e intenta OCR si pytesseract está disponible."""
+    metadata = {"type": "image"}
+    parts = [f"[IMAGEN: {Path(filepath).name}]"]
+
+    # Metadatos básicos con Pillow
+    PIL = _try_import("PIL.Image")
+    if PIL:
+        try:
+            from PIL import Image
+            img = Image.open(filepath)
+            w, h = img.size
+            parts.append(f"Dimensiones: {w}×{h}px | Modo: {img.mode} | Formato: {img.format}")
+            metadata.update({"width": w, "height": h, "mode": img.mode})
+        except Exception:
+            pass
+
+    # OCR con pytesseract
+    pytesseract = _try_import("pytesseract")
+    if pytesseract:
+        try:
+            from PIL import Image
+            import pytesseract as tess
+            img = Image.open(filepath)
+            ocr_text = tess.image_to_string(img, lang="spa+eng").strip()
+            if ocr_text:
+                parts.append(f"\n[TEXTO DETECTADO POR OCR]\n{ocr_text}")
+                metadata["ocr_chars"] = len(ocr_text)
+        except Exception:
+            pass
+    else:
+        parts.append("[OCR no disponible — instala pytesseract para extraer texto de imágenes]")
+
+    text = "\n".join(parts)
+    return text, estimate_tokens(text), metadata
+
+
+def process_zip(filepath: str) -> Tuple[str, int, dict]:
+    """Extrae y analiza el contenido de un archivo ZIP.
     
+    - Lista todos los archivos del ZIP con tamaños
+    - Extrae y procesa los archivos de texto/código automáticamente
+    - Procesa recursivamente ZIPs anidados
+    - Omite binarios y archivos demasiado grandes
+    """
+    MAX_EXTRACT_SIZE = 50 * 1024 * 1024  # 50 MB por archivo
+    MAX_TOTAL_TEXT = 200_000  # chars máximos de texto total
+    SKIP_EXTENSIONS = {".pyc", ".pyo", ".class", ".o", ".so", ".dll", ".exe",
+                       ".bin", ".dat", ".pack", ".idx"}
+
+    parts = [f"[ARCHIVO ZIP: {Path(filepath).name}]"]
+    file_inventory = []
+    processed_texts = []
+    errors = []
+
+    try:
+        with zipfile.ZipFile(filepath, "r") as zf:
+            members = zf.infolist()
+            parts.append(f"Total de entradas: {len(members)}")
+
+            # Inventario
+            for info in members:
+                if not info.is_dir():
+                    size_kb = info.file_size / 1024
+                    file_inventory.append(f"  {info.filename} ({size_kb:.1f} KB)")
+
+            parts.append("\n[INVENTARIO DE ARCHIVOS]\n" + "\n".join(file_inventory[:200]))
+            if len(file_inventory) > 200:
+                parts.append(f"  ... y {len(file_inventory) - 200} archivos más")
+
+            # Extraer y procesar archivos de texto
+            total_chars = 0
+            with tempfile.TemporaryDirectory() as tmpdir:
+                for info in members:
+                    if info.is_dir():
+                        continue
+                    ext = Path(info.filename).suffix.lower()
+                    if ext in SKIP_EXTENSIONS:
+                        continue
+                    if info.file_size > MAX_EXTRACT_SIZE:
+                        processed_texts.append(f"\n[{info.filename}] — omitido (demasiado grande: {info.file_size/1024/1024:.1f} MB)")
+                        continue
+                    if total_chars >= MAX_TOTAL_TEXT:
+                        processed_texts.append(f"\n[... límite de texto alcanzado, {len(members)} archivos en total]")
+                        break
+
+                    try:
+                        data = zf.read(info.filename)
+                        # Si es otro ZIP, procesar recursivamente
+                        if ext == ".zip":
+                            sub_path = os.path.join(tmpdir, Path(info.filename).name)
+                            with open(sub_path, "wb") as f:
+                                f.write(data)
+                            sub_text, _, sub_meta = process_zip(sub_path)
+                            processed_texts.append(f"\n[ZIP ANIDADO: {info.filename}]\n{sub_text[:5000]}")
+                            total_chars += len(sub_text[:5000])
+                            continue
+
+                        # Intentar decodificar como texto
+                        file_text = None
+                        for enc in ("utf-8", "latin-1", "cp1252"):
+                            try:
+                                file_text = data.decode(enc)
+                                break
+                            except Exception:
+                                continue
+
+                        if file_text is None:
+                            # Archivo binario — saltar
+                            continue
+
+                        # Truncar si es muy largo
+                        if len(file_text) > 20000:
+                            file_text = file_text[:20000] + f"\n... [truncado, {len(data)} bytes totales]"
+
+                        processed_texts.append(f"\n{'='*50}\n[ARCHIVO: {info.filename}]\n{'='*50}\n{file_text}")
+                        total_chars += len(file_text)
+
+                    except Exception as e:
+                        errors.append(f"{info.filename}: {e}")
+
+        if processed_texts:
+            parts.append("\n[CONTENIDO DE ARCHIVOS]")
+            parts.extend(processed_texts)
+        if errors:
+            parts.append(f"\n[ERRORES AL PROCESAR: {', '.join(errors[:10])}]")
+
+        metadata = {
+            "total_files": len(file_inventory),
+            "processed_files": len(processed_texts),
+            "type": "zip",
+        }
+
+    except zipfile.BadZipFile:
+        parts.append("[ERROR: Archivo ZIP dañado o inválido]")
+        metadata = {"error": "bad_zip"}
+    except Exception as e:
+        parts.append(f"[ERROR al abrir ZIP: {e}]")
+        metadata = {"error": str(e)}
+
+    text = "\n".join(parts)
+    return text, estimate_tokens(text), metadata
+
+
+def process_tar(filepath: str) -> Tuple[str, int, dict]:
+    """Extrae y analiza un archivo TAR (.tar, .tar.gz, .tgz, .tar.bz2, .tar.xz)."""
+    MAX_EXTRACT_SIZE = 50 * 1024 * 1024
+    MAX_TOTAL_TEXT = 200_000
+    SKIP_EXTENSIONS = {".pyc", ".pyo", ".class", ".o", ".so", ".dll", ".exe",
+                       ".bin", ".dat", ".pack", ".idx"}
+
+    parts = [f"[ARCHIVO TAR: {Path(filepath).name}]"]
+    file_inventory = []
+    processed_texts = []
+
+    try:
+        with tarfile.open(filepath, "r:*") as tf:
+            members = tf.getmembers()
+            files = [m for m in members if m.isfile()]
+            parts.append(f"Total de archivos: {len(files)}")
+
+            for m in files:
+                file_inventory.append(f"  {m.name} ({m.size/1024:.1f} KB)")
+            parts.append("\n[INVENTARIO]\n" + "\n".join(file_inventory[:200]))
+
+            total_chars = 0
+            for m in files:
+                if total_chars >= MAX_TOTAL_TEXT:
+                    break
+                ext = Path(m.name).suffix.lower()
+                if ext in SKIP_EXTENSIONS or m.size > MAX_EXTRACT_SIZE:
+                    continue
+                try:
+                    f = tf.extractfile(m)
+                    if f is None:
+                        continue
+                    data = f.read()
+                    file_text = None
+                    for enc in ("utf-8", "latin-1"):
+                        try:
+                            file_text = data.decode(enc)
+                            break
+                        except Exception:
+                            continue
+                    if file_text is None:
+                        continue
+                    if len(file_text) > 15000:
+                        file_text = file_text[:15000] + "\n... [truncado]"
+                    processed_texts.append(f"\n{'='*50}\n[{m.name}]\n{'='*50}\n{file_text}")
+                    total_chars += len(file_text)
+                except Exception:
+                    continue
+
+        if processed_texts:
+            parts.append("\n[CONTENIDO]")
+            parts.extend(processed_texts)
+
+        metadata = {"total_files": len(files), "type": "tar"}
+    except Exception as e:
+        parts.append(f"[ERROR al abrir TAR: {e}]")
+        metadata = {"error": str(e)}
+
+    text = "\n".join(parts)
+    return text, estimate_tokens(text), metadata
+
+
+def process_ipynb(filepath: str) -> Tuple[str, int, dict]:
+    """Extrae celdas de código y markdown de un Jupyter Notebook."""
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            nb = json.load(f)
+
+        cells = nb.get("cells", [])
+        parts = [f"[Jupyter Notebook: {len(cells)} celdas]"]
+        code_cells = 0
+        md_cells = 0
+
+        for i, cell in enumerate(cells, 1):
+            ctype = cell.get("cell_type", "")
+            source = "".join(cell.get("source", []))
+            if not source.strip():
+                continue
+            if ctype == "code":
+                code_cells += 1
+                parts.append(f"\n[Celda {i} — Código]\n```python\n{source}\n```")
+                # Incluir outputs de texto si los hay
+                outputs = cell.get("outputs", [])
+                for out in outputs:
+                    if out.get("output_type") in ("stream", "execute_result", "display_data"):
+                        out_text = "".join(out.get("text", out.get("data", {}).get("text/plain", [])))
+                        if out_text.strip():
+                            parts.append(f"[Output]: {out_text[:500]}")
+            elif ctype == "markdown":
+                md_cells += 1
+                parts.append(f"\n[Celda {i} — Markdown]\n{source}")
+
+        text = "\n".join(parts)
+        metadata = {"total_cells": len(cells), "code_cells": code_cells, "md_cells": md_cells}
+        return text, estimate_tokens(text), metadata
+    except Exception as e:
+        text = f"[ipynb: Error al procesar {Path(filepath).name}: {e}]"
+        return text, estimate_tokens(text), {"error": str(e)}
+
+
+def process_file(filepath: str) -> Tuple[str, int, dict]:
+    """Dispatcher universal: procesa cualquier tipo de archivo.
+
     Soporta:
-    - Datos: CSV, JSON, TSV → procesamiento estructurado
-    - Todo lo demás (código, texto, config, etc) → lectura como texto plano
+    - Datos: CSV, TSV, JSON, JSONL → procesamiento estructurado
+    - Office: PDF, DOCX, DOC, XLSX, XLS, ODS, PPTX, PPT → extracción de contenido
+    - Imágenes: PNG, JPG, WEBP, etc. → metadatos + OCR opcional
+    - Archivos comprimidos: ZIP, TAR, GZ, TGZ → inventario + extracción de texto
+    - Notebooks: IPYNB → celdas de código y markdown
+    - Texto / Código: todo lo demás → lectura como texto plano
     """
     ext = Path(filepath).suffix.lower()
-    
+    name = Path(filepath).name
+
+    # ── Datos estructurados ──
     if ext == ".csv":
         return process_csv(filepath)
     elif ext in (".json", ".jsonl"):
         return process_json(filepath)
-    elif ext in (".txt", ".log", ".md", ".rst"):
-        return process_text(filepath)
     elif ext == ".tsv":
         df = pd.read_csv(filepath, sep="\t")
-        metadata = {
-            "rows": len(df),
-            "columns": len(df.columns),
-            "column_names": df.columns.tolist(),
-        }
+        metadata = {"rows": len(df), "columns": len(df.columns), "column_names": df.columns.tolist()}
         text = optimize_dataset_for_llm(df)
         tokens = estimate_tokens(text)
         del df
         return text, tokens, metadata
+
+    # ── Documentos Office / PDF ──
+    elif ext == ".pdf":
+        return process_pdf(filepath)
+    elif ext in (".docx", ".doc"):
+        return process_docx(filepath)
+    elif ext in (".xlsx", ".xls", ".xlsm", ".ods"):
+        return process_xlsx(filepath)
+    elif ext in (".pptx", ".ppt"):
+        return process_pptx(filepath)
+
+    # ── Imágenes ──
+    elif ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"):
+        return process_image(filepath)
+
+    # ── Archivos comprimidos ──
+    elif ext == ".zip":
+        return process_zip(filepath)
+    elif ext in (".tar", ".gz", ".tgz", ".tar.gz", ".tar.bz2", ".tar.xz"):
+        # .gz podría ser un tar.gz o un gz simple
+        if ext == ".gz" and not name.endswith(".tar.gz"):
+            # gz simple: descomprimir y tratar como texto
+            import gzip
+            try:
+                with gzip.open(filepath, "rt", encoding="utf-8", errors="replace") as f:
+                    content = f.read(100_000)
+                metadata = {"type": "gzip", "size": len(content)}
+                text = f"[GZ: {name}]\n{content}"
+                return text, estimate_tokens(text), metadata
+            except Exception as e:
+                text = f"[GZ: Error al descomprimir {name}: {e}]"
+                return text, estimate_tokens(text), {"error": str(e)}
+        return process_tar(filepath)
+
+    # ── Jupyter Notebook ──
+    elif ext == ".ipynb":
+        return process_ipynb(filepath)
+
+    # ── Texto plano y código ──
+    elif ext in (".txt", ".log", ".md", ".rst", ".rtf", ".odt", ".epub"):
+        return process_text(filepath)
+
+    # ── Cualquier otro (código, config, etc.) → texto plano ──
     else:
-        # Cualquier otra extensión (py, js, java, lua, luau, cpp, h, etc.)
-        # se trata como texto plano de código
         return process_text(filepath)
 
 

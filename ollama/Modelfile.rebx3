@@ -1,4 +1,4 @@
-FROM qwen2.5:3b-instruct-q4_K_M
+FROM qwen2.5-coder:3b
 
 # ── Parámetros anti-bucle ──────────────────────────────────────────────────────
 PARAMETER num_ctx         16384

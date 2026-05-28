@@ -92,16 +92,37 @@ def init_db():
                 FOREIGN KEY (chat_id) REFERENCES chats(id) ON DELETE CASCADE
             );
 
+            -- ═══════════════════════════════════════════════════════════
+            -- API KEYS — Acceso programático externo (curl, scripts…)
+            -- ═══════════════════════════════════════════════════════════
+            CREATE TABLE IF NOT EXISTS api_keys (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id      INTEGER NOT NULL,
+                key_hash     TEXT    UNIQUE NOT NULL,   -- SHA-256 de la key real
+                key_prefix   TEXT    NOT NULL,          -- Primeros 12 chars para mostrar
+                name         TEXT    NOT NULL DEFAULT 'Mi API Key',
+                is_active    INTEGER NOT NULL DEFAULT 1,
+                created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+                last_used_at TEXT    DEFAULT NULL,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
             CREATE INDEX IF NOT EXISTS idx_sessions_token   ON sessions(token);
             CREATE INDEX IF NOT EXISTS idx_chats_user       ON chats(user_id);
             CREATE INDEX IF NOT EXISTS idx_messages_chat    ON chat_messages(chat_id);
             CREATE INDEX IF NOT EXISTS idx_files_chat       ON chat_files(chat_id);
+            CREATE INDEX IF NOT EXISTS idx_api_keys_hash    ON api_keys(key_hash);
+            CREATE INDEX IF NOT EXISTS idx_api_keys_user    ON api_keys(user_id);
         """)
 
         # ── Migración segura: añadir columnas de plan a tabla existente ──────
         _safe_alter(conn, "users", "plan",             "TEXT NOT NULL DEFAULT 'free_limited'")
         _safe_alter(conn, "users", "pioneer_number",   "INTEGER DEFAULT NULL")
         _safe_alter(conn, "users", "plan_assigned_at", "TEXT DEFAULT NULL")
+
+        # ── Garantía: Aerys siempre tiene plan_max, independiente del estado de la BD ──
+        _ensure_aerys_plan_max(conn)
+
         conn.executescript("""
 
             -- ═══════════════════════════════════════════════════════════
@@ -205,13 +226,19 @@ def get_session_user(token: str) -> dict | None:
         return None
     with get_db() as conn:
         row = conn.execute(
-            """SELECT u.id, u.username, u.email, u.created_at
-               FROM users u
-               JOIN sessions s ON s.user_id = u.id
-               WHERE s.token = ? AND s.expires_at > datetime('now')""",
+            """SELECT u.id, u.username, u.email, u.plan, u.created_at
+                FROM users u
+                JOIN sessions s ON s.user_id = u.id
+                WHERE s.token = ? AND s.expires_at > datetime('now')""",
             (token,),
         ).fetchone()
-    return dict(row) if row else None
+    if not row:
+        return None
+    user = dict(row)
+    # Aerys siempre tiene plan_max, sin excepción
+    if user.get("username", "").strip().lower() == ADMIN_USERNAME.lower():
+        user["plan"] = PLAN_MAX
+    return user
 
 
 def delete_session(token: str):
@@ -396,6 +423,20 @@ def get_total_chat_tokens(chat_id: int) -> int:
 # ═══════════════════════════════════════════════════════════════
 
 ADMIN_USERNAME = "Aerys"
+
+
+def _ensure_aerys_plan_max(conn) -> None:
+    """
+    Migración en caliente: si Aerys existe en la BD y no tiene plan_max,
+    lo actualiza. Se llama durante init_db() para garantizar el estado correcto
+    aunque la cuenta se haya creado antes de esta lógica.
+    """
+    conn.execute(
+        """UPDATE users
+           SET plan = ?, plan_assigned_at = COALESCE(plan_assigned_at, datetime('now'))
+           WHERE LOWER(username) = LOWER(?) AND plan != ?""",
+        (PLAN_MAX, ADMIN_USERNAME, PLAN_MAX),
+    )
 
 
 def is_admin(user: dict) -> bool:
@@ -601,12 +642,26 @@ def assign_pioneer_plan(user_id: int) -> dict:
     Asigna el plan correcto al usuario recién registrado.
 
     Regla Alpha_Pionero:
+    - Aerys (admin): plan_admin gratis, siempre.
     - Usuarios 1–50 (excl. admin): plan_max gratis, pioneer_number = N
     - Usuario 51+: free_limited
 
     Devuelve: {"plan": str, "pioneer_number": int|None, "is_pioneer": bool}
     """
     with get_db() as conn:
+        # Comprobar si es el admin (Aerys) — le asignamos plan_admin siempre
+        user_row = conn.execute(
+            "SELECT username FROM users WHERE id = ?", (user_id,)
+        ).fetchone()
+        if user_row and user_row["username"].strip().lower() == ADMIN_USERNAME.lower():
+            from datetime import datetime, timezone
+            now = datetime.now(timezone.utc).isoformat()
+            conn.execute(
+                "UPDATE users SET plan=?, pioneer_number=NULL, plan_assigned_at=? WHERE id=?",
+                (PLAN_ADMIN, now, user_id)
+            )
+            return {"plan": PLAN_ADMIN, "pioneer_number": None, "is_pioneer": True}
+
         # Contar pioneros actuales (sin contar al admin)
         count_row = conn.execute(
             "SELECT COUNT(*) FROM users WHERE plan = ? AND username != 'aerys'",
@@ -639,13 +694,15 @@ def get_user_plan(user_id: int) -> dict:
     """Devuelve el plan y número pionero de un usuario."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT plan, pioneer_number, plan_assigned_at FROM users WHERE id = ?",
+            "SELECT username, plan, pioneer_number, plan_assigned_at FROM users WHERE id = ?",
             (user_id,)
         ).fetchone()
         if not row:
             return {"plan": PLAN_FREE, "pioneer_number": None, "is_pioneer": False}
+        # Aerys siempre tiene plan_max, sin excepción
+        plan = PLAN_MAX if row["username"].strip().lower() == ADMIN_USERNAME.lower() else row["plan"]
         return {
-            "plan":           row["plan"],
+            "plan":           plan,
             "pioneer_number": row["pioneer_number"],
             "is_pioneer":     row["pioneer_number"] is not None,
         }
@@ -668,3 +725,301 @@ def get_pioneer_leaderboard(limit: int = 60) -> list[dict]:
 def is_plan_max(user: dict) -> bool:
     """Predicate: ¿tiene el usuario plan_max o admin?"""
     return user.get("plan") in (PLAN_MAX, PLAN_ADMIN)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CÓDIGOS DE REDENCIÓN (admin genera → usuario activa Plan MAX)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _ensure_redeem_table() -> None:
+    """Crea la tabla de códigos si no existe."""
+    with get_db() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS redeem_codes (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                code        TEXT    NOT NULL UNIQUE,
+                plan        TEXT    NOT NULL DEFAULT 'plan_max',
+                note        TEXT,
+                used        INTEGER NOT NULL DEFAULT 0,
+                used_by     INTEGER REFERENCES users(id),
+                used_at     TEXT,
+                created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+            )
+        """)
+
+
+def create_redeem_code(code: str, plan: str = "plan_max", note: str = "") -> bool:
+    """Crea un código de redención. Devuelve False si el código ya existe."""
+    _ensure_redeem_table()
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO redeem_codes (code, plan, note) VALUES (?, ?, ?)",
+                (code.strip().upper(), plan, note),
+            )
+        return True
+    except Exception:
+        return False
+
+
+def use_redeem_code(user_id: int, code: str) -> dict:
+    """
+    Intenta canjear un código para el usuario dado.
+    Devuelve {"ok": bool, "plan": str|None, "error": str|None}
+    """
+    _ensure_redeem_table()
+    code = code.strip().upper()
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT id, plan, used FROM redeem_codes WHERE code = ?", (code,)
+        ).fetchone()
+        if not row:
+            return {"ok": False, "plan": None, "error": "Código no válido."}
+        if row["used"]:
+            return {"ok": False, "plan": None, "error": "Este código ya fue usado."}
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        conn.execute(
+            "UPDATE redeem_codes SET used=1, used_by=?, used_at=? WHERE code=?",
+            (user_id, now, code),
+        )
+        conn.execute(
+            "UPDATE users SET plan=?, plan_assigned_at=? WHERE id=?",
+            (row["plan"], now, user_id),
+        )
+        return {"ok": True, "plan": row["plan"], "error": None}
+
+
+def list_redeem_codes() -> list[dict]:
+    """Lista todos los códigos (para el panel admin)."""
+    _ensure_redeem_table()
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT rc.id, rc.code, rc.plan, rc.note, rc.used,
+                   u.username AS used_by_name, rc.used_at, rc.created_at
+            FROM redeem_codes rc
+            LEFT JOIN users u ON u.id = rc.used_by
+            ORDER BY rc.created_at DESC
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# API KEYS — Acceso programático externo (curl, scripts, integraciones…)
+# ═══════════════════════════════════════════════════════════════════════════
+# Formato de key: ak_<64 chars hex>  (66 chars totales)
+# Se almacena únicamente el SHA-256 de la key, nunca el valor original.
+# El prefix (ej. "ak_a1b2c3d4e5f6") se guarda solo para mostrar al usuario.
+# ═══════════════════════════════════════════════════════════════════════════
+
+_API_KEY_PREFIX = "ak_"
+_API_KEY_BYTES  = 32   # → 64 chars hex
+
+
+def _hash_api_key(key: str) -> str:
+    """Devuelve el SHA-256 hex de la API key."""
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()
+
+
+def generate_api_key() -> str:
+    """Genera una nueva API key con formato ak_<64 hex chars>."""
+    return _API_KEY_PREFIX + secrets.token_hex(_API_KEY_BYTES)
+
+
+def create_api_key(user_id: int, name: str) -> dict:
+    """
+    Genera y persiste una nueva API key para el usuario.
+
+    Devuelve:
+        {
+          "id":         int,
+          "key":        str,   ← solo se devuelve UNA vez, aquí
+          "key_prefix": str,   ← los primeros 12 chars (para mostrar luego)
+          "name":       str,
+          "created_at": str,
+        }
+
+    Límite: máximo 10 API keys activas por usuario.
+    """
+    # Verificar límite de keys activas
+    with get_db() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM api_keys WHERE user_id = ? AND is_active = 1",
+            (user_id,)
+        ).fetchone()[0]
+        if count >= 10:
+            from fastapi import HTTPException
+            raise HTTPException(
+                status_code=400,
+                detail="Límite alcanzado: máximo 10 API keys activas por usuario.",
+            )
+
+    raw_key    = generate_api_key()
+    key_hash   = _hash_api_key(raw_key)
+    key_prefix = raw_key[:12]   # "ak_a1b2c3d4e" — primeros 12 chars
+
+    with get_db() as conn:
+        cur = conn.execute(
+            """INSERT INTO api_keys (user_id, key_hash, key_prefix, name)
+               VALUES (?, ?, ?, ?)""",
+            (user_id, key_hash, key_prefix, name.strip()[:64]),
+        )
+        key_id = cur.lastrowid
+        row = conn.execute(
+            "SELECT id, key_prefix, name, created_at FROM api_keys WHERE id = ?",
+            (key_id,)
+        ).fetchone()
+
+    return {
+        "id":         row["id"],
+        "key":        raw_key,        # ← devolver UNA sola vez al usuario
+        "key_prefix": row["key_prefix"],
+        "name":       row["name"],
+        "created_at": row["created_at"],
+    }
+
+
+def get_user_by_api_key(raw_key: str) -> dict | None:
+    """
+    Verifica una API key y devuelve el usuario propietario.
+    Actualiza last_used_at. Devuelve None si la key es inválida o inactiva.
+    """
+    if not raw_key or not raw_key.startswith(_API_KEY_PREFIX):
+        return None
+
+    key_hash = _hash_api_key(raw_key)
+
+    with get_db() as conn:
+        row = conn.execute(
+            """SELECT u.id, u.username, u.email, u.plan, u.created_at,
+                      ak.id AS key_id, ak.is_active
+               FROM api_keys ak
+               JOIN users u ON u.id = ak.user_id
+               WHERE ak.key_hash = ?""",
+            (key_hash,),
+        ).fetchone()
+
+        if not row or not row["is_active"]:
+            return None
+
+        # Actualizar last_used_at de forma no bloqueante
+        conn.execute(
+            "UPDATE api_keys SET last_used_at = datetime('now') WHERE id = ?",
+            (row["key_id"],),
+        )
+
+    user = {k: row[k] for k in ("id", "username", "email", "plan", "created_at")}
+    # Aerys siempre plan_max
+    if user["username"].strip().lower() == ADMIN_USERNAME.lower():
+        user["plan"] = PLAN_MAX
+    user["auth_method"] = "api_key"
+    return user
+
+
+def list_user_api_keys(user_id: int) -> list[dict]:
+    """Lista las API keys activas del usuario (sin exponer el hash)."""
+    with get_db() as conn:
+        rows = conn.execute(
+            """SELECT id, key_prefix, name, created_at, last_used_at
+               FROM api_keys
+               WHERE user_id = ? AND is_active = 1
+               ORDER BY created_at DESC""",
+            (user_id,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def revoke_api_key(key_id: int, user_id: int) -> bool:
+    """
+    Revoca (desactiva) una API key del usuario.
+    Devuelve True si se encontró y revocó, False si no existe o pertenece a otro.
+    """
+    with get_db() as conn:
+        cur = conn.execute(
+            "UPDATE api_keys SET is_active = 0 WHERE id = ? AND user_id = ?",
+            (key_id, user_id),
+        )
+    return cur.rowcount > 0
+
+
+def revoke_all_user_api_keys(user_id: int) -> int:
+    """Revoca todas las API keys de un usuario. Devuelve el número revocadas."""
+    with get_db() as conn:
+        cur = conn.execute(
+            "UPDATE api_keys SET is_active = 0 WHERE user_id = ? AND is_active = 1",
+            (user_id,),
+        )
+    return cur.rowcount
+    
+    """
+PARCHE PARA database.py
+=======================
+Añade las dos funciones que le faltan y que pioneers.py intenta importar.
+Copia el contenido de este archivo al FINAL de app/database.py
+(después de la función revoke_all_user_api_keys).
+
+FUNCIONES AÑADIDAS:
+  1. get_user_by_token(token)       — alias de get_session_user (mismo token de sesión)
+  2. check_daily_message_limit(...) — cuenta mensajes de hoy y compara con el límite del plan
+"""
+
+# ═══════════════════════════════════════════════════════════════
+# COMPATIBILIDAD CON pioneers.py
+# ═══════════════════════════════════════════════════════════════
+
+MAX_DAILY_MESSAGES: dict[str, int] = {
+    "plan_max":           -1,   # ilimitado
+    "plan_free_limitado": 20,
+    "free_limited":       20,   # mismo nombre que PLAN_FREE en database.py
+}
+
+
+def get_user_by_token(token: str) -> dict | None:
+    """
+    Alias de get_session_user() para compatibilidad con pioneers.py.
+    pioneers.py usa Authorization: Bearer <token> donde el token
+    es el mismo session_token que emite el sistema de auth principal.
+    """
+    return get_session_user(token)
+
+
+def check_daily_message_limit(
+    user_id: int,
+    plan: str,
+) -> tuple[bool, int, int]:
+    """
+    Comprueba si el usuario puede enviar un mensaje hoy.
+
+    Devuelve: (allowed: bool, used_today: int, max_allowed: int)
+      - allowed     → True si puede enviar, False si alcanzó el límite
+      - used_today  → mensajes enviados hoy (solo rol 'user')
+      - max_allowed → límite diario del plan (-1 = ilimitado)
+
+    Lógica:
+      • Plan max (plan_max) → siempre permitido, max = -1
+      • Plan free           → contar mensajes 'user' de hoy y comparar con MAX_DAILY_MESSAGES
+    """
+    max_allowed = MAX_DAILY_MESSAGES.get(plan, 20)
+
+    # Plan max: sin límite
+    if max_allowed == -1:
+        return True, 0, -1
+
+    # Contar mensajes enviados hoy por este usuario (solo rol 'user')
+    with get_db() as conn:
+        row = conn.execute(
+            """
+            SELECT COUNT(m.id) as cnt
+            FROM chat_messages m
+            JOIN chats c ON c.id = m.chat_id
+            WHERE c.user_id = ?
+              AND m.role    = 'user'
+              AND date(m.created_at) = date('now')
+            """,
+            (user_id,),
+        ).fetchone()
+
+    used_today = row["cnt"] if row else 0
+    allowed = used_today < max_allowed
+    return allowed, used_today, max_allowed
+

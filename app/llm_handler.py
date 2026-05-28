@@ -134,6 +134,7 @@ class OllamaHandler:
         context_text: str = "",
         system_prompt: Optional[str] = None,
         use_max_context: bool = False,
+        num_ctx: Optional[int] = None,
     ) -> AsyncGenerator[str, None]:
         """Genera respuesta con streaming, ULTRA OPTIMIZADO.
 
@@ -141,7 +142,8 @@ class OllamaHandler:
             prompt: Pregunta del usuario
             context_text: Contexto (datos o codigo)
             system_prompt: System prompt opcional
-            use_max_context: Si True, usa 65k tokens
+            use_max_context: Si True, usa 65k tokens (legacy)
+            num_ctx: Contexto explícito en tokens (sobreescribe use_max_context)
 
         Yields:
             Fragmentos de la respuesta en streaming
@@ -149,7 +151,9 @@ class OllamaHandler:
         # ─── CONFIGURAR OPCIONES ────────────────────────────────────
         options = self.options.copy()
         
-        if use_max_context:
+        if num_ctx is not None:
+            options["num_ctx"] = num_ctx
+        elif use_max_context:
             options["num_ctx"] = self.max_ctx_options["num_ctx"]
             options["num_batch"] = self.max_ctx_options["num_batch"]
 

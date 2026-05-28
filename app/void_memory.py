@@ -278,6 +278,107 @@ class VoidChannelHistory:
         self._entries.clear()
         self._total_tokens = 0
 
+    def reset(self) -> None:
+        """Alias de clear() para compatibilidad con agent_chat.py."""
+        self.clear()
+
+    def add(
+        self,
+        agent_id: str,
+        content: str,
+        msg_type: str = "chat",
+        extra: dict | None = None,
+    ) -> dict:
+        """
+        Añade un mensaje al historial y devuelve el dict completo del mensaje.
+        Usado por AgentSession.add_message() en agent_chat.py.
+        """
+        role = "assistant" if agent_id not in ("user", "SYSTEM") else "user"
+        entry = HistoryEntry(role=role, content=content, agent_id=agent_id)
+        self._entries.append(entry)
+        self._total_tokens += entry.tokens
+        self._enforce_limits()
+        msg: dict = {
+            "agent_id":  agent_id,
+            "content":   content,
+            "type":      msg_type,
+            "timestamp": entry.timestamp,
+            "role":      role,
+        }
+        if extra:
+            msg.update(extra)
+        return msg
+
+    def configure_budget(
+        self,
+        max_messages: int | None = None,
+        max_tokens: int | None = None,
+    ) -> None:
+        """
+        Actualiza los límites de memoria en caliente.
+        Llamado por AgentSession._sync_memory_mode() en agent_chat.py.
+        """
+        if max_messages is not None:
+            self._max_messages = max_messages
+        if max_tokens is not None:
+            self._max_tokens = max_tokens
+        self._enforce_limits()
+
+    def budgeted_context(
+        self,
+        max_prompt_tokens: int = 4096,
+        recent_turns: int = 4,
+        max_recent_chars: int = 500,
+        max_historic_chars: int = 180,
+        extended: bool = False,
+    ) -> list[str]:
+        """
+        Devuelve una lista de strings formateados para el snapshot de contexto.
+        Llamado por AgentSession.build_context_snapshot() en agent_chat.py.
+        """
+        if not self._entries:
+            return []
+
+        # Separamos las últimas `recent_turns * 2` entradas (user + assistant)
+        cutoff = recent_turns * 2
+        recent = self._entries[-cutoff:] if cutoff > 0 else []
+        historic = self._entries[:-cutoff] if cutoff < len(self._entries) else []
+
+        lines: list[str] = []
+        token_budget = max_prompt_tokens
+
+        # Historial antiguo (resumido)
+        for entry in historic:
+            if token_budget <= 0:
+                break
+            line = sanitize_context_line(
+                entry.agent_id or entry.role,
+                entry.content,
+                max_historic_chars,
+            )
+            if line:
+                label = context_label(entry.agent_id or entry.role)
+                formatted = f"[{label}] {line}"
+                lines.append(formatted)
+                token_budget -= estimate_tokens(formatted)
+
+        # Mensajes recientes (con más detalle)
+        for entry in recent:
+            if token_budget <= 0:
+                break
+            line = sanitize_context_line(
+                entry.agent_id or entry.role,
+                entry.content,
+                max_recent_chars,
+            )
+            if line:
+                label = context_label(entry.agent_id or entry.role)
+                formatted = f"[{label}] {line}"
+                lines.append(formatted)
+                token_budget -= estimate_tokens(formatted)
+
+        return lines
+
     @property
     def total_tokens(self) -> int:
         return self._total_tokens
@@ -285,6 +386,23 @@ class VoidChannelHistory:
     @property
     def message_count(self) -> int:
         return len(self._entries)
+
+    @property
+    def messages(self) -> list[dict]:
+        """Todos los mensajes como lista de dicts {role, content}.
+        Alias para compatibilidad con agent_chat.py."""
+        return [
+            {"role": e.role, "content": e.content}
+            for e in self._entries
+        ]
+
+    @messages.setter
+    def messages(self, value: list[dict]) -> None:
+        """Reemplaza el historial completo desde una lista de dicts."""
+        self._entries.clear()
+        self._total_tokens = 0
+        for msg in value:
+            self.push(msg.get("role", "user"), msg.get("content", ""))
 
     def recent_messages(self, n: int = 8) -> list[dict]:
         """Últimos N mensajes como dicts (para detección de eco)."""

@@ -1,20 +1,24 @@
 """
-Autenticacion basada en usuarios con sesiones SQLite
-=====================================================
-Reemplaza el sistema de token unico por:
-- Registro de usuarios (username + email + contrasena)
-- Login con sesion persistente (cookie session_token, 30 dias)
-- Middleware que protege todas las rutas HTML
-- Dependencia FastAPI para proteger endpoints de API
+auth.py — Autenticación y seguridad de acceso
+===============================================
+• AuthMiddleware     — Protege todas las rutas HTML; acepta cookie session_token
+                       Y header X-API-Key para acceso programático.
+• get_current_user() — Dependencia FastAPI: acepta cookie O X-API-Key.
+• get_auth_page()    — Página de login/registro con cabeceras de seguridad.
+
+INTEGRACIÓN EN main.py (ya existente, sin cambios necesarios):
+    from app.auth import AuthMiddleware, get_current_user, get_auth_page
+    app.add_middleware(AuthMiddleware)
 """
-from fastapi import Request, HTTPException, Depends
+
+from fastapi import Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app import database as db
 
 
-# ─── RUTAS QUE NO REQUIEREN AUTENTICACION ────────────────────────────────────
+# ─── RUTAS PÚBLICAS (no requieren autenticación) ─────────────────────────────
 PUBLIC_PATHS = [
     "/auth",
     "/static/",
@@ -24,33 +28,43 @@ PUBLIC_PATHS = [
 ]
 
 
-class AuthMiddleware(BaseHTTPMiddleware):
-    """Middleware que redirige al login si el usuario no tiene sesion activa.
+# ─── MIDDLEWARE DE AUTENTICACIÓN ─────────────────────────────────────────────
 
-    Solo actua sobre rutas HTML (no API ni estáticos).
-    Los endpoints de API usan la dependencia get_current_user().
+class AuthMiddleware(BaseHTTPMiddleware):
+    """
+    Middleware de autenticación con doble vía:
+      1. Cookie session_token  → sesión de navegador (30 días)
+      2. Header X-API-Key      → acceso programático externo
+
+    También inyecta el usuario en request.state.user para que
+    los endpoints puedan acceder sin volver a hacer la consulta.
     """
 
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
-        # Rutas publicas: pasar sin verificar
+        # Rutas públicas: pasar sin verificar
         if any(path.startswith(p) for p in PUBLIC_PATHS):
             return await call_next(request)
 
-        # Verificar sesion
+        # ── Vía 1: cookie de sesión (navegador web) ──────────────────────
         token = request.cookies.get("session_token")
-        user = db.get_session_user(token)
+        user  = db.get_session_user(token) if token else None
+
+        # ── Vía 2: API key (scripts, curl, integraciones) ────────────────
+        if not user:
+            api_key = request.headers.get("X-API-Key", "").strip()
+            if api_key:
+                user = db.get_user_by_api_key(api_key)
 
         if user:
-            # Inyectar usuario en el state de la request
             request.state.user = user
             return await call_next(request)
 
-        # Sin sesion: redirigir al login (solo para peticiones HTML)
+        # Sin sesión válida
         accept = request.headers.get("accept", "")
         if "application/json" in accept or path.startswith("/api/"):
-            raise HTTPException(status_code=401, detail="No autenticado. Inicia sesion.")
+            raise HTTPException(status_code=401, detail="No autenticado. Inicia sesión.")
 
         return RedirectResponse(url="/auth")
 
@@ -58,7 +72,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
 # ─── DEPENDENCIA FASTAPI ──────────────────────────────────────────────────────
 
 async def get_current_user(request: Request) -> dict:
-    """Dependencia para endpoints de API que requieren autenticacion.
+    """
+    Dependencia para endpoints de API que requieren autenticación.
+
+    Acepta:
+      • Cookie session_token  (navegador)
+      • Header X-API-Key      (acceso programático)
 
     Uso: user = Depends(get_current_user)
     """
@@ -69,16 +88,25 @@ async def get_current_user(request: Request) -> dict:
 
     # Fallback: leer cookie directamente
     token = request.cookies.get("session_token")
-    user = db.get_session_user(token)
-    if not user:
-        raise HTTPException(status_code=401, detail="No autenticado. Inicia sesion.")
-    return user
+    if token:
+        user = db.get_session_user(token)
+        if user:
+            return user
+
+    # Fallback: API Key
+    api_key = request.headers.get("X-API-Key", "").strip()
+    if api_key:
+        user = db.get_user_by_api_key(api_key)
+        if user:
+            return user
+
+    raise HTTPException(status_code=401, detail="No autenticado. Inicia sesión.")
 
 
-# ─── PAGINA DE AUTH (LOGIN + REGISTRO) ───────────────────────────────────────
+# ─── PÁGINA DE AUTH (LOGIN + REGISTRO) ───────────────────────────────────────
 
 def get_auth_page() -> str:
-    """Devuelve la pagina combinada de login y registro con tabs."""
+    """Devuelve la página combinada de login y registro con tabs."""
     return """<!DOCTYPE html>
 <html lang="es" data-theme="dark">
 <head>
@@ -175,7 +203,7 @@ def get_auth_page() -> str:
         </div>
         <div class="field">
             <label>Contrasena</label>
-            <input type="password" id="rPass" placeholder="min. 6 caracteres" required minlength="6">
+            <input type="password" id="rPass" placeholder="min. 8 caracteres" required minlength="8">
         </div>
         <div class="field">
             <label>Repetir contrasena</label>
@@ -234,6 +262,7 @@ async function doRegister(e) {
     const pass = document.getElementById('rPass').value;
     const pass2 = document.getElementById('rPass2').value;
     if (pass !== pass2) { showMsg('rMsg', 'Las contrasenas no coinciden', 'err'); return; }
+    if (pass.length < 8) { showMsg('rMsg', 'La contrasena debe tener al menos 8 caracteres', 'err'); return; }
 
     const btn = document.getElementById('rBtn');
     btn.disabled = true; btn.textContent = 'Creando cuenta...';

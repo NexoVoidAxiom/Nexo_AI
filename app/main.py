@@ -46,8 +46,9 @@ from app.prompts import (
     build_architect_prompt,
     build_agent_a_prompt,
     build_agent_b_prompt,
-    build_reviewer_prompt,
+    build_reviewer_prompt, 
 )
+from app.pioneers import router as pioneers_router, enforce_plan_limits, get_plan_limits
 
 # ─── BÚSQUEDA WEB ─────────────────────────────────────────────────────────────
 try:
@@ -233,7 +234,7 @@ async def _buscar_web_async(query: str, max_results: int = 5) -> str:
 # ─── MODELOS PERMITIDOS ────────────────────────────────────────────────────────
 ALLOWED_MODELS = [
     "qwen2.5-coder:3b",
-    "qwen2.5-coder:7b",
+    "qwen2.5-coder:7b-instruct",
     "qwen2.5-coder:14b",
 ]
 
@@ -322,7 +323,7 @@ app = FastAPI(
     version="2.0.0",
     lifespan=lifespan,
 )
-
+app.include_router(pioneers_router)
 # ─── MIDDLEWARE ────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
@@ -610,7 +611,55 @@ async def admin_user_messages(user_id: int, admin: dict = Depends(get_admin_user
     return {"messages": db.get_user_messages_admin(user_id)}
 
 
-# ─── CHATS ────────────────────────────────────────────────────────────────────
+# ─── CÓDIGOS DE REDENCIÓN ─────────────────────────────────────────────────────
+
+@app.post("/api/redeem-code")
+async def redeem_plan_code(data: dict, user: dict = Depends(get_current_user)):
+    """El usuario canjea un código para activar su plan."""
+    code = (data.get("code") or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="Introduce un código.")
+    result = db.use_redeem_code(user["id"], code)
+    if not result["ok"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    return {"status": "ok", "plan": result["plan"], "message": "¡Plan activado correctamente! 🎉"}
+
+
+@app.post("/api/admin/codes/create")
+async def admin_create_code(data: dict, admin: dict = Depends(get_admin_user)):
+    """Admin genera un código de redención."""
+    import secrets, string
+    code = data.get("code") or "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(12))
+    plan = data.get("plan", "plan_max")
+    note = data.get("note", "")
+    ok = db.create_redeem_code(code, plan, note)
+    if not ok:
+        raise HTTPException(status_code=409, detail="Ese código ya existe.")
+    return {"status": "ok", "code": code, "plan": plan}
+
+
+@app.get("/api/admin/codes")
+async def admin_list_codes(admin: dict = Depends(get_admin_user)):
+    """Admin lista todos los códigos generados."""
+    return {"codes": db.list_redeem_codes()}
+
+
+@app.delete("/api/admin/codes/{code}")
+async def admin_delete_code(code: str, admin: dict = Depends(get_admin_user)):
+    """Admin elimina un código (solo si no ha sido usado)."""
+    import app.database as _db
+    _db._ensure_redeem_table()
+    with _db.get_db() as conn:
+        row = conn.execute("SELECT used FROM redeem_codes WHERE code=?", (code.upper(),)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Código no encontrado.")
+        if row["used"]:
+            raise HTTPException(status_code=400, detail="No puedes eliminar un código ya canjeado.")
+        conn.execute("DELETE FROM redeem_codes WHERE code=?", (code.upper(),))
+    return {"status": "ok"}
+
+
+
 
 @app.get("/api/chats")
 async def list_chats(user: dict = Depends(get_current_user)):
@@ -1037,6 +1086,8 @@ async def chat_stream(
 
     if not prompt:
         raise HTTPException(status_code=400, detail="Prompt vacio")
+    # ── Verificar límite de plan ──────────────────────────────
+    await enforce_plan_limits(user["id"], user["plan"])
 
     files = app_state.get_files(user["id"], chat_id)
     context_text = ""
@@ -1094,13 +1145,18 @@ async def chat_stream(
         # En Windows, cerrar la pestaña a mitad del stream lanza un
         # ConnectionResetError (WinError 10054) que congela el ProactorEventLoop.
         # La solución es comprobar is_disconnected() antes de cada yield y
+        # Límite de contexto según plan del usuario
+        _plan_limits = get_plan_limits(user.get("plan", "free_limited"))
+        _num_ctx = _plan_limits.get("context_tokens", 20000)
+
         # capturar cualquier excepción de red para salir limpiamente.
         try:
             async for chunk in app_state.llm.generate_stream(
                 prompt=final_prompt,
                 context_text=final_context,
                 system_prompt=system_prompt,
-                use_max_context=use_max_context,
+                use_max_context=False,
+                num_ctx=_num_ctx,
             ):
                 # Comprobar si el cliente cerró la conexión antes de enviar el chunk
                 if await request.is_disconnected():
@@ -2388,11 +2444,11 @@ async def void_stream(request: Request, user: dict = Depends(get_current_user)):
                 "is_paused": void_session.is_paused,
                 "agents": {
                     k: {
-                        "display_name": v["display_name"],
-                        "role": v["role"],
-                        "color": v["color"],
-                        "icon": v["icon"],
-                        "model": v["model"],
+                        "display_name": v.get("display", k),
+                        "role": v.get("sigil", "?"),
+                        "color": v.get("color", "#FFFFFF"),
+                        "icon": v.get("sigil", "?"),
+                        "model": v.get("model", ""),
                     }
                     for k, v in AGENTS.items()
                 },
