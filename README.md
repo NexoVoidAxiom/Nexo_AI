@@ -427,3 +427,11 @@ Uso personal/educativo. Creado por **Aerys** (desarrollador de 13 años).
 | `Guardar Cambios Git.bat` | Commit rápido a Git |
 | `Cerrar Tunel.bat` | Cierra exposición externa |
 | `scripts/init_void_axiom_ollama.bat` | Inicializa modelos Void Axiom |
+
+> ### ⚠️ AVISO DE PROTOCOLO DE SEGURIDAD
+> 
+> **ADVERTENCIA:** El Agente **3B (Rebelde)** tiene una tolerancia limitada a las consultas redundantes. En casos extremos, puede volverse muy enojón y acabar explotando (metafóricamente... o no). 
+> 
+> Si detectas que el sistema entra en un bucle de insultos o el ventilador de tu PC empieza a sonar como una turbina, recomendamos aplicar el **Protocolo de Mantenimiento Analógico**: dale un golpe seco al chasis para reiniciarle la memoria. 
+> 
+> *Void Axiom no se hace responsable de daños colaterales, abolladuras en el hardware o crisis existenciales del usuario.*
