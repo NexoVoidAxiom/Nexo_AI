@@ -218,7 +218,7 @@ Interfaz single-page con layout de 3 columnas:
 **Header**: selector de modelo (3B/7B/14B/32B-soon), estado de Ollama (dot verde/rojo), botón Generador, botón Admin (solo para Aerys), badge de plan (Free/MAX), link Void Axiom.
 
 **Modales**:
-- **Admin** (solo `elgatosuperpitzzero@gmail.com`): stats, usuarios, todos los chats, modelos instalados, códigos de redención
+- **Admin** (solo el creador): stats, usuarios, todos los chats, modelos instalados, códigos de redención
 - **Plan**: Mi Plan (uso diario), Alpha Pioneros (slots, leaderboard, planes Free/Tester/MAX), Donaciones (Ko-fi, Bizum, PayPal, intención)
 
 **Responsive**: menú hamburguesa, paneles deslizables en móvil.
@@ -403,7 +403,7 @@ Los primeros **50 usuarios** obtienen **plan MAX gratis** con badge permanente. 
 - **WinError 10054**: detección de desconexión en cada iteración del stream con `request.is_disconnected()`
 - **Anti-bleeding**: guard de sistema inyectado antes del system prompt de cada agente A2A
 - **Suppression**: detección de respuestas corruptas (markers) y eco del historial
-- **Admin**: identificado por email `elgatosuperpitzzero@gmail.com`
+- **Admin**: solo el creador del proyecto
 - **Códigos de redención**: tipos cafe/pizza/mes/trimestre, siempre generan plan_max
 - **Migración void_axiom** pendiente: el refactor agents/ + core/ + api/ está listo pero no conectado
 
