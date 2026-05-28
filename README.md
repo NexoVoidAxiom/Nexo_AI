@@ -170,8 +170,8 @@ Detección automática de consultas actuales → RSS + DuckDuckGo fallback:
 - **Notebooks**: .ipynb
 
 ### Contexto
-- **Normal**: 55,000 tokens (por defecto)
-- **Máximo**: 110,000 tokens (toggle "Ctx" en header)
+- **Plan FREE**: 25,000 tokens de contexto
+- **Plan MAX / TESTER**: 35,000 tokens de contexto
 - Barra de progreso visual con colores: verde (<70%) → naranja (70-90%) → rojo (>90%)
 
 ### Resumen y diagnóstico
