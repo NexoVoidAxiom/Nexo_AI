@@ -81,8 +81,10 @@ Prueba de IA Codigo/
 │   ├── __init__.py
 │   └── routes.py              ←   Endpoints: /agents, /dispatcher/status, /debug/intent
 │
+├── index.html                 ← ★ Frontend principal (raíz del proyecto)
+│
 ├── static/
-│   ├── index.html             ← ★ Frontend principal (2900 líneas)
+│   ├── index.html             ←   Copia en static/ (la que sirve main.py)
 │   ├── auth.html              ←   Login/registro
 │   ├── generador.html         ←   Generador de código 4 fases
 │   ├── void_axiom.html        ←   Frontend A2A Void Axiom

@@ -2132,8 +2132,8 @@
             <div class="don-info-row"><span>Importe:</span><strong id="paypalAmount">€3,00</strong></div>
             <p class="don-info-note">Gracias por tu apoyo 💜</p>
           </div>
-          <button class="don-intent-btn" onclick="submitDonIntent()">✉️ Registrar intención de donación</button>
-          <p class="don-intent-note">Opcional: guarda tu solicitud para que Aerys la vea.</p>
+          <button class="don-intent-btn" onclick="submitDonIntent()" style="opacity:0.7">✉️ Registrar intención de donación <span style="font-size:9px;color:var(--orange)">(en proceso)</span></button>
+          <p class="don-intent-note">Opcional: guarda tu solicitud para que Aerys la vea. <span style="color:var(--orange)">Pasarela de pago en desarrollo.</span></p>
         </div>
       </div>
     </div>
@@ -2159,7 +2159,7 @@
         <button class="model-btn" id="mbtn-3b" onclick="switchModel('qwen2.5-coder:3b')" title="Rápido">Nexo Lite 1.0</button>
         <button class="model-btn" id="mbtn-7b" onclick="switchModel('qwen2.5-coder:7b-instruct')" title="Balance">Nexo Coder 1.0</button>
         <button class="model-btn" id="mbtn-14b" onclick="switchModel('qwen2.5-coder:14b')" title="Calidad">Nexo Pro 1.0</button>
-        <button class="model-btn unavailable" id="mbtn-32b" disabled title="Próximamente" onclick="return false;">32B <span style="font-size:9px;color:var(--text-3)">soon</span></button>
+        <button class="model-btn unavailable" id="mbtn-32b" disabled title="Próximamente - requiere más VRAM" onclick="return false;">32B <span style="font-size:9px;color:var(--orange)">próximamente</span></button>
       </div>
       <div class="toggle" style="display:none"><span>Ctx</span><input type="checkbox" id="ctxToggle"></div>
       <div class="badge"><span class="dot" id="statusDot"></span><span id="statusText">Conectando...</span></div>
