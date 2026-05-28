@@ -165,7 +165,24 @@ SERVER_CONFIG = {
 }
 
 # ─── AUTENTICACION ────────────────────────────────────────────────────────────
-AUTH_TOKEN = os.getenv("AUTH_TOKEN", "mi-analisis-ia-2024")
+# SEGURIDAD: AUTH_TOKEN debe definirse en variable de entorno o en un fichero
+# .env local (nunca hardcodeado en el código fuente).
+# Para generar un token seguro ejecuta:
+#   python -c "import secrets; print(secrets.token_hex(32))"
+# y ponlo en tu .env o en la variable de entorno AUTH_TOKEN.
+_raw_token = os.getenv("AUTH_TOKEN", "")
+if not _raw_token:
+    import warnings
+    warnings.warn(
+        "\n\n⚠️  AUTH_TOKEN no está definido en las variables de entorno.\n"
+        "   El servidor arrancará, pero la autenticación no estará protegida.\n"
+        "   Define AUTH_TOKEN en tu .env o como variable de entorno:\n"
+        "     python -c \"import secrets; print(secrets.token_hex(32))\"\n",
+        stacklevel=1,
+    )
+    # Valor de emergencia para desarrollo local — NUNCA expongas esto en producción
+    _raw_token = "CAMBIAR_ANTES_DE_PRODUCCION"
+AUTH_TOKEN = _raw_token
 
 # ─── LIMITES DE SUBIDA ────────────────────────────────────────────────────────
 UPLOAD_CONFIG = {

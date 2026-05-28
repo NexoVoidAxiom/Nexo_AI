@@ -9,12 +9,17 @@ Gestiona todo el estado persistente de la aplicacion:
 - Archivos (archivos subidos vinculados a cada chat)
 """
 import sqlite3
-import hashlib
 import secrets
 import json
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
+
+# SEGURIDAD: bcrypt es resistente a fuerza bruta (SHA-256 no lo es).
+# passlib[bcrypt] ya está en requirements.txt.
+from passlib.context import CryptContext
+
+_pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 DB_PATH = Path("data/analizador.db")
 
@@ -155,26 +160,33 @@ def init_db():
 # ═══════════════════════════════════════════════════════════════
 
 def _hash_password(password: str, salt: str = None) -> tuple[str, str]:
-    """Hashea una contrasena con SHA-256 + salt aleatorio."""
-    if salt is None:
-        salt = secrets.token_hex(32)
-    pw_hash = hashlib.sha256((password + salt).encode("utf-8")).hexdigest()
-    return pw_hash, salt
+    """Hashea una contraseña con bcrypt (resistente a fuerza bruta).
+
+    El parámetro 'salt' se ignora: bcrypt genera e incrusta su propio salt
+    automáticamente. Se mantiene la firma (pw_hash, salt) para compatibilidad
+    con el resto del código, devolviendo salt="" en su lugar.
+
+    NOTA: Si la BD tiene usuarios antiguos con SHA-256, sus contraseñas
+    seguirán funcionando hasta que vuelvan a iniciar sesión, momento en que
+    se migrarán automáticamente a bcrypt (ver authenticate_user).
+    """
+    pw_hash = _pwd_ctx.hash(password)
+    return pw_hash, ""  # bcrypt incrusta el salt en el hash
 
 
 def create_user(username: str, email: str, password: str) -> dict | None:
     """Crea un usuario nuevo. Devuelve None si ya existe."""
     if len(password) < 6:
-        raise ValueError("La contrasena debe tener al menos 6 caracteres")
+        raise ValueError("La contraseña debe tener al menos 6 caracteres")
     if len(username) < 3:
         raise ValueError("El nombre de usuario debe tener al menos 3 caracteres")
 
-    pw_hash, salt = _hash_password(password)
+    pw_hash, _ = _hash_password(password)
     try:
         with get_db() as conn:
             cur = conn.execute(
                 "INSERT INTO users (username, email, password_hash, salt) VALUES (?, ?, ?, ?)",
-                (username.strip(), email.strip().lower(), pw_hash, salt),
+                (username.strip(), email.strip().lower(), pw_hash, ""),
             )
             return {"id": cur.lastrowid, "username": username, "email": email}
     except sqlite3.IntegrityError:
@@ -182,7 +194,14 @@ def create_user(username: str, email: str, password: str) -> dict | None:
 
 
 def authenticate_user(username_or_email: str, password: str) -> dict | None:
-    """Verifica credenciales. Devuelve el usuario o None."""
+    """Verifica credenciales. Devuelve el usuario o None.
+
+    Migración automática SHA-256 → bcrypt: si el hash almacenado empieza por
+    '$2b$' ya es bcrypt; si no, se verifica con el SHA-256 antiguo y, en caso
+    de éxito, se re-hashea con bcrypt para futuros logins.
+    """
+    import hashlib as _hashlib  # solo para migración de hashes legacy
+
     with get_db() as conn:
         user = conn.execute(
             "SELECT * FROM users WHERE username = ? OR email = ?",
@@ -192,9 +211,26 @@ def authenticate_user(username_or_email: str, password: str) -> dict | None:
     if not user:
         return None
 
-    pw_hash, _ = _hash_password(password, user["salt"])
-    if secrets.compare_digest(pw_hash, user["password_hash"]):
+    stored_hash = user["password_hash"]
+
+    # ── Hash moderno (bcrypt) ──────────────────────────────────────────────
+    if stored_hash.startswith("$2b$") or stored_hash.startswith("$2a$"):
+        if _pwd_ctx.verify(password, stored_hash):
+            return dict(user)
+        return None
+
+    # ── Hash legacy (SHA-256 + salt) — migración automática ───────────────
+    legacy_hash = _hashlib.sha256((password + user["salt"]).encode("utf-8")).hexdigest()
+    if secrets.compare_digest(legacy_hash, stored_hash):
+        # Contraseña correcta: re-hashear con bcrypt y guardar
+        new_hash = _pwd_ctx.hash(password)
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE users SET password_hash = ?, salt = '' WHERE id = ?",
+                (new_hash, user["id"]),
+            )
         return dict(user)
+
     return None
 
 
@@ -1022,4 +1058,3 @@ def check_daily_message_limit(
     used_today = row["cnt"] if row else 0
     allowed = used_today < max_allowed
     return allowed, used_today, max_allowed
-

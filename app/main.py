@@ -325,9 +325,29 @@ app = FastAPI(
 )
 app.include_router(pioneers_router)
 # ─── MIDDLEWARE ────────────────────────────────────────────────────────────────
+# ─── CORS ─────────────────────────────────────────────────────────────────────
+# SEGURIDAD: solo se permiten los orígenes definidos en CORS_ORIGINS.
+# En desarrollo puedes añadir "http://localhost:3000" etc.
+# En producción pon el dominio real, p.ej. "https://tudominio.com".
+# Para añadir más orígenes sepáralos con coma en la variable de entorno:
+#   CORS_ORIGINS="https://tudominio.com,https://www.tudominio.com"
+_cors_env = os.getenv("CORS_ORIGINS", "")
+CORS_ORIGINS: list[str] = (
+    [o.strip() for o in _cors_env.split(",") if o.strip()]
+    if _cors_env
+    else [
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+    allow_origins=CORS_ORIGINS,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With"],
+    allow_credentials=True,
 )
 app.add_middleware(AuthMiddleware)
 
