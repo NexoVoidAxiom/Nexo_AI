@@ -43,13 +43,18 @@ from app.data_processor import (
 )
 from app.llm_handler import OllamaHandler
 from app.void_activity import void_activity
+from app.smart_router import smart_router, NEXO_MODELS, LIGHT_MODEL
+from app.database import get_user_selected_model, set_user_selected_model
 from app.prompts import (
     build_architect_prompt,
     build_agent_a_prompt,
     build_agent_b_prompt,
     build_reviewer_prompt, 
 )
+import logging
 from app.pioneers import router as pioneers_router, enforce_plan_limits, get_plan_limits
+
+logger = logging.getLogger(__name__)
 
 # ─── BÚSQUEDA WEB ─────────────────────────────────────────────────────────────
 try:
@@ -590,6 +595,55 @@ async def switch_model(data: dict, user: dict = Depends(get_current_user)):
 
     app_state.llm.model = found
     return {"status": "ok", "model": app_state.llm.model}
+
+
+# ─── MODELOS NEXO (smart router) ─────────────────────────────────────────────
+
+@app.get("/api/nexo-models")
+async def list_nexo_models(user: dict = Depends(get_current_user)):
+    """Lista los modelos Nexo disponibles (Lite, Coder, Pro)."""
+    return {
+        "models": smart_router.list_nexo_models(),
+        "current": db.get_user_selected_model(user["id"]),
+    }
+
+
+@app.get("/api/nexo-models/current")
+async def get_current_nexo_model(user: dict = Depends(get_current_user)):
+    """Devuelve el modelo Nexo actualmente seleccionado por el usuario."""
+    model_id = db.get_user_selected_model(user["id"])
+    model_info = smart_router.get_nexo_model_info(model_id)
+    return {
+        "model_id": model_id,
+        "model_info": model_info or {"id": model_id, "display": model_id},
+        "light_model": LIGHT_MODEL,
+    }
+
+
+@app.post("/api/nexo-models/switch")
+async def switch_nexo_model(data: dict, user: dict = Depends(get_current_user)):
+    """Cambia el modelo Nexo seleccionado por el usuario (nexo_lite|nexo_coder|nexo_pro)."""
+    model_id = data.get("model_id", "").strip().lower()
+    if not model_id:
+        raise HTTPException(status_code=400, detail="model_id es requerido")
+    
+    valid_ids = {"nexo_lite", "nexo_coder", "nexo_pro"}
+    if model_id not in valid_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Modelo no válido. Opciones: {', '.join(sorted(valid_ids))}",
+        )
+    
+    if not db.set_user_selected_model(user["id"], model_id):
+        raise HTTPException(status_code=500, detail="Error al guardar la selección")
+    
+    model_info = smart_router.get_nexo_model_info(model_id)
+    return {
+        "status": "ok",
+        "model_id": model_id,
+        "model_info": model_info,
+        "message": f"Modelo cambiado a {model_info['display']}",
+    }
 
 
 # ─── ADMINISTRACIÓN ───────────────────────────────────────────────────────────
@@ -1176,13 +1230,39 @@ async def chat_stream(
                 f"Responde con lo que sepas e indica que la busqueda no devolvio resultados.)"
             )
 
-        # ── BUCLE PRINCIPAL CON DETECCIÓN DE DESCONEXIÓN ──────────────────────
-        # En Windows, cerrar la pestaña a mitad del stream lanza un
-        # ConnectionResetError (WinError 10054) que congela el ProactorEventLoop.
-        # La solución es comprobar is_disconnected() antes de cada yield y
-        # Límite de contexto según plan del usuario
+        # ── SMART ROUTER: decidir si usar modelo ligero (3B) o pesado ─────────
+        # Clasificar la intención del mensaje
+        _intent = smart_router.classify(prompt)
+        # Obtener el modelo Nexo seleccionado por el usuario
+        _nexo_model_id = db.get_user_selected_model(user["id"])
+        # Obtener la configuración del modelo a usar
+        _model_config = smart_router.get_models_for_intent(_intent, _nexo_model_id)
+        
+        # Enviar evento SSE indicando qué modo se está usando
+        yield f"data: {json.dumps({'type': 'mode', 'mode': 'light' if not _model_config['is_heavy'] else 'heavy', 'label': _model_config['label']})}\n\n"
+
+        # Guardar el modelo original de llm_handler
+        _original_model = app_state.llm.model
+        # Cambiar temporalmente al modelo seleccionado por el smart router
+        app_state.llm.model = _model_config["model"]
+
+        # ── CONTEXTO DEL MODELO SEGÚN EL PLAN DEL USUARIO ──────────────────
+        # Cada plan tiene un límite de contexto máximo (num_ctx de Ollama):
+        #   Plan Free  → 25,000 tokens
+        #   Plan MAX   → 35,000 tokens
+        #   Plan Tester→ 35,000 tokens
+        # Esto controla cuánto puede "ver" el modelo (historial + archivos + prompt).
+        # El toggle 55k/110k del frontend queda reemplazado por estos límites.
         _plan_limits = get_plan_limits(user.get("plan", "free_limited"))
-        _num_ctx = _plan_limits.get("context_tokens", 20000)
+        _num_ctx = _plan_limits.get("context_tokens", 25000)
+        
+        # Si los archivos superan el contexto disponible, truncar para que quepan
+        if final_context:
+            _file_tokens_est = estimate_tokens(final_context)
+            _available_for_files = _num_ctx - estimate_tokens(prompt) - 2000  # margen para system prompt
+            if _file_tokens_est > _available_for_files:
+                from app.data_processor import truncate_to_token_limit as _ttl
+                final_context, _ = _ttl(final_context, max(1000, _available_for_files))
 
         # capturar cualquier excepción de red para salir limpiamente.
         try:
@@ -1207,6 +1287,8 @@ async def chat_stream(
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
 
         except (asyncio.CancelledError, GeneratorExit):
+            # Restaurar el modelo original en caso de cancelación
+            app_state.llm.model = _original_model
             # CancelledError y GeneratorExit heredan de BaseException, NO de Exception.
             # Uvicorn los lanza cuando el cliente cierra la conexión — por eso
             # el bloque "except Exception" anterior nunca los capturaba.

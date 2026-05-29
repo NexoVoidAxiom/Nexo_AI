@@ -121,22 +121,33 @@ PLAN_LIMITS = {
         "max_file_size_mb":     100,
         "models_allowed":       ["all"],
         "gpu_priority":         "high",
-        "context_tokens":       30000,
+        "context_tokens":       35000,       # contexto máximo del modelo
         "can_upload_files":     True,
         "can_use_agents":       True,
         "api_access":           True,
-        "description":          "Plan Pionero MAX — Sin límites, acceso completo.",
+        "description":          "Plan MAX — Sin límites, acceso completo.",
     },
     PLAN_FREE: {
         "messages_per_day":     20,
         "max_file_size_mb":     1,
-        "models_allowed":       ["fast"],    # solo perfil 'fast' del config.py
+        "models_allowed":       ["fast"],
         "gpu_priority":         "normal",
-        "context_tokens":       20000,
+        "context_tokens":       25000,       # contexto máximo del modelo
         "can_upload_files":     False,
         "can_use_agents":       False,
         "api_access":           False,
-        "description":          "Plan Free Limitado — 20 mensajes/día, funcionalidad básica.",
+        "description":          "Plan Free — 20 mensajes/día, 25k contexto.",
+    },
+    "plan_tester": {
+        "messages_per_day":     -1,
+        "max_file_size_mb":     50,
+        "models_allowed":       ["all"],
+        "gpu_priority":         "high",
+        "context_tokens":       35000,
+        "can_upload_files":     True,
+        "can_use_agents":       True,
+        "api_access":           True,
+        "description":          "Plan Tester — Acceso completo, 35k contexto.",
     },
 }
 

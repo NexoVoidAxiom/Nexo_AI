@@ -1,0 +1,231 @@
+"""
+smart_router.py — Router Inteligente para Nexo AI
+==================================================
+Determina automáticamente si usar un modelo ligero (3B) para charla casual
+o el modelo pesado seleccionado por el usuario (Nexo Lite/Coder/Pro) 
+para tareas que requieren razonamiento o código.
+
+Flujo:
+  1. Clasificar intención del mensaje (CHAT vs WORK)
+  2. Si es CHAT (saludo, conversación casual) → modelo ligero 3B
+  3. Si es WORK (código, análisis, razonamiento) → modelo pesado del usuario
+
+Mapping de modelos Nexo:
+  - Nexo Lite 1.0  → qwen2.5-coder:3b
+  - Nexo Coder 1.0 → qwen2.5-coder:7b-instruct  
+  - Nexo Pro 1.0   → qwen2.5-coder:14b
+"""
+
+from __future__ import annotations
+
+import re
+import logging
+from enum import Enum, auto
+
+logger = logging.getLogger("smart_router")
+
+# ─── Modelos disponibles ──────────────────────────────────────────────────
+
+LIGHT_MODEL = "qwen2.5-coder:3b"  # Para charla casual
+
+NEXO_MODELS = {
+    "nexo_lite": {
+        "id": "nexo_lite",
+        "display": "Nexo Lite 1.0",
+        "model": "qwen2.5-coder:3b",
+        "description": "Ligero y rápido, ideal para tareas simples",
+        "vram_gb": 2.0,
+    },
+    "nexo_coder": {
+        "id": "nexo_coder",
+        "display": "Nexo Coder 1.0",
+        "model": "qwen2.5-coder:7b-instruct",
+        "description": "Balance velocidad/calidad, ideal para código y análisis",
+        "vram_gb": 4.5,
+    },
+    "nexo_pro": {
+        "id": "nexo_pro",
+        "display": "Nexo Pro 1.0",
+        "model": "qwen2.5-coder:14b",
+        "description": "Máxima capacidad, razonamiento profundo",
+        "vram_gb": 8.5,
+    },
+}
+
+DEFAULT_HEAVY_MODEL = "nexo_coder"  # Modelo pesado por defecto
+
+
+# ─── Clasificador de intención (CHAT vs WORK) ──────────────────────────────
+# Es más sensible que el IntentClassifier existente: 
+# cualquier señal de "trabajo" hace saltar a WORK.
+# Solo CHAT puro (saludos, preguntas simples, conversación) usa el modelo ligero.
+
+_WORK_KEYWORDS = frozenset({
+    # Código / programación
+    "python", "javascript", "typescript", "rust", "go", "java", "c++", "cpp",
+    "código", "codigo", "code", "script", "función", "funcion", "function",
+    "clase", "class", "método", "metodo", "implementa", "implement",
+    "escribe", "write", "crea", "create", "refactoriza", "refactor",
+    "optimiza", "optimize", "arregla", "fix", "debug", "bug", "error",
+    "import", "api", "endpoint", "router", "async", "await",
+    "algoritmo", "algorithm", "estructura", "pipeline", "docker",
+    "test", "pytest", "mock", "sql", "query", "database", "select",
+    "html", "css", "react", "vue", "fastapi", "django", "flask",
+    "git", "deploy", "compila", "compila", "ejecuta", "run",
+    # Análisis / razonamiento
+    "analiza", "analyze", "compara", "compare", "explica", "explain",
+    "arquitectura", "architecture", "diseña", "design", "diagrama",
+    "optimización", "optimization", "rendimiento", "performance",
+    "investiga", "investigate", "resuelve", "solve", "calcula", "calculate",
+    "paso a paso", "step by step", "en detalle", "in detail",
+    "demuestra", "prove", "teorema", "theorem", "ecuación", "equation",
+    # Datos
+    "dataframe", "csv", "pandas", "numpy", "matplotlib", "grafica",
+    "análisis", "analisis", "analysis", "visualización", "visualization",
+    "estadística", "estadistica", "statistics", "machine learning",
+    # Archivos / contexto
+    "archivo", "file", "subido", "upload", "documento", "document",
+    "contexto", "context", "texto", "text",
+})
+
+# Palabras clave que INDICAN claramente charla casual
+_CHAT_KEYWORDS = frozenset({
+    "hola", "hello", "hey", "buenas", "buenos días", "buenas tardes",
+    "gracias", "thanks", "ok", "vale", "de nada", "you're welcome",
+    "cómo estás", "como estas", "how are you", "bien", "bien y tú",
+    "qué tal", "que tal", "what's up", "todo bien",
+    "adiós", "adios", "bye", "hasta luego", "nos vemos",
+    "quién eres", "quien eres", "who are you", "qué eres", "que eres",
+    "quién te creó", "quien te creo", "who created you",
+    "qué puedes hacer", "que puedes hacer", "what can you do",
+})
+
+# Patrones que indican claramente que es charla (no trabajo)
+_CHAT_PATTERNS = [
+    re.compile(r"^(hola|hey|buenas|oye|ey)\b", re.IGNORECASE),
+    re.compile(r"\b(gracias|thanks|ok|vale)\s*$", re.IGNORECASE),
+    re.compile(r"^cómo est[áa]s", re.IGNORECASE),
+    re.compile(r"^qu[ée] (eres|puedes|sabes|haces)", re.IGNORECASE),
+    re.compile(r"^qui[ée]n (eres|te|creo)", re.IGNORECASE),
+]
+
+# Patrones que INDICAN claramente que es trabajo
+_WORK_PATTERNS = [
+    re.compile(r"```[\w]*\n"),                    # Bloque de código
+    re.compile(r"(def|class|function|import|const|let|var)\s+\w"),  # Código
+    re.compile(r"SELECT\s+.+FROM", re.IGNORECASE), # SQL
+    re.compile(r"(docker|git|npm|pip)\s+\w+"),     # Comandos
+    re.compile(r"![\w]+"),                         # Shebang/bash commands
+    re.compile(r"\{[\s\S]{50,}\}"),               # JSON/dict grande
+    re.compile(r"\$\w+\s*="),                      # Bash variables
+    re.compile(r"<\w+[^>]*>"),                     # HTML tags
+]
+
+
+class WorkIntent(Enum):
+    """Intención reducida: CHAT (charla casual) o WORK (tarea real)."""
+    CHAT = auto()  # Charla casual → modelo ligero 3B
+    WORK = auto()  # Tarea real → modelo pesado del usuario
+
+
+class SmartRouter:
+    """
+    Router inteligente que decide si usar modelo ligero o pesado.
+    
+    Estrategia:
+      - Si hay palabras clave de TRABAJO → WORK
+      - Si hay patrones de código/estructura → WORK
+      - Si SOLO hay palabras de charla y ninguna de trabajo → CHAT
+      - En caso de duda (sin señales claras) → WORK (usa el modelo pesado)
+        porque es mejor pecar de usar un modelo potente para responder
+        una pregunta simple que usar el ligero para algo complejo.
+    """
+
+    def classify(self, text: str) -> WorkIntent:
+        """
+        Clasifica el texto como CHAT (charla casual) o WORK (tarea real).
+        
+        Returns:
+            WorkIntent.CHAT si es charla pura sin trabajo
+            WorkIntent.WORK si hay cualquier señal de trabajo o duda
+        """
+        text_lower = text.lower().strip()
+        
+        # 1. Detectar patrones de código → WORK forzoso
+        for pattern in _WORK_PATTERNS:
+            if pattern.search(text):
+                logger.debug("WORK detectado por patrón estructural: %s", pattern.pattern)
+                return WorkIntent.WORK
+        
+        # 2. Detectar palabras clave de trabajo
+        tokens = set(re.findall(r"[\w'áéíóúüñÁÉÍÓÚÜÑ]+", text_lower))
+        work_hits = tokens & _WORK_KEYWORDS
+        chat_hits = tokens & _CHAT_KEYWORDS
+        
+        if work_hits:
+            logger.debug("WORK detectado por keywords: %s", work_hits)
+            return WorkIntent.WORK
+        
+        # 3. Detectar patrones de charla
+        for pattern in _CHAT_PATTERNS:
+            if pattern.search(text):
+                # Es charla, PERO verificar si también tiene contexto de trabajo
+                # (por ejemplo: "hola, analiza este archivo" → WORK)
+                if len(text.split()) > 8:
+                    logger.debug("Patrón de charla detectado pero hay suficiente texto -> WORK")
+                    return WorkIntent.WORK
+                logger.debug("CHAT detectado por patrón: %s", pattern.pattern)
+                return WorkIntent.CHAT
+        
+        # 4. Heurística: mensajes muy cortos (1-4 palabras) sin señales claras
+        word_count = len(text.split())
+        if word_count <= 4 and chat_hits:
+            logger.debug("CHAT: mensaje corto con palabras de charla")
+            return WorkIntent.CHAT
+        
+        # 5. En duda o texto largo → WORK (mejor prevenir)
+        logger.debug("DUDA resuelta como WORK (default seguro)")
+        return WorkIntent.WORK
+
+    def get_models_for_intent(
+        self,
+        intent: WorkIntent,
+        user_selected_model: str = DEFAULT_HEAVY_MODEL,
+    ) -> dict:
+        """
+        Devuelve la configuración de modelos según la intención y la preferencia del usuario.
+        
+        Args:
+            intent: CHAT o WORK
+            user_selected_model: ID del modelo Nexo seleccionado por el usuario
+                               (nexo_lite, nexo_coder, nexo_pro)
+        
+        Returns:
+            dict con 'model' (nombre en Ollama) y 'is_heavy' (bool)
+        """
+        if intent == WorkIntent.CHAT:
+            return {
+                "model": LIGHT_MODEL,
+                "is_heavy": False,
+                "label": "Modo charla (3B)",
+            }
+        
+        # WORK: usar el modelo pesado seleccionado por el usuario
+        model_config = NEXO_MODELS.get(user_selected_model, NEXO_MODELS[DEFAULT_HEAVY_MODEL])
+        return {
+            "model": model_config["model"],
+            "is_heavy": True,
+            "label": f"Modo trabajo ({model_config['display']})",
+        }
+
+    def get_nexo_model_info(self, model_id: str) -> dict | None:
+        """Devuelve la info de un modelo Nexo por su ID."""
+        return NEXO_MODELS.get(model_id)
+
+    def list_nexo_models(self) -> list[dict]:
+        """Lista todos los modelos Nexo disponibles."""
+        return list(NEXO_MODELS.values())
+
+
+# ─── Singleton ────────────────────────────────────────────────────────────
+smart_router = SmartRouter()
