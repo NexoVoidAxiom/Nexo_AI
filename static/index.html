@@ -2262,8 +2262,7 @@ const tU=$('tUsed'),tM=$('tMax'),tB=$('tBar');
 const idot=$('indicator'),stT=$('stText'),sD=$('statusDot'),sT2=$('statusText');
 const ctT=$('ctxToggle'),toast=$('toast'),ov=$('overlay'),pt=$('pt');
 const chatList=$('chatList'),chatTitle=$('chatTitle');
-const CN=55000,CM=110000;
-let state={dataLoaded:false,tokens:0,maxTokens:CN,streaming:false,files:[],currentChatId:null,currentModel:'',isAdmin:false,streamController:null};
+let state={dataLoaded:false,tokens:0,maxTokens:25000,streaming:false,files:[],currentChatId:null,currentModel:'',isAdmin:false,streamController:null,planContextTokens:25000};
 
 // ── UTILS ──
 function autoH(e){e.style.height='auto';e.style.height=Math.min(e.scrollHeight,100)+'px';}
@@ -2954,18 +2953,30 @@ async function adminDeleteCode(code){
 function toggleMobPanel(panel){var el=$(panel);if(el)el.classList.toggle('mob-open');$('mobBackdrop').classList.toggle('open');}
 function closeMobPanels(){document.querySelectorAll('.sidebar,.panel-left').forEach(function(e){e.classList.remove('mob-open');});$('mobBackdrop').classList.remove('open');}
 
+// ── CARGAR CONTEXTO DEL PLAN ──
+async function loadPlanContextTokens(){
+    try{
+        var r=await fetch('/api/user/plan');
+        if(r.ok){
+            var d=await r.json();
+            var ctxTokens=(d.limits&&d.limits.context_tokens)||25000;
+            state.planContextTokens=ctxTokens;
+            state.maxTokens=ctxTokens;
+            tM.textContent=ctxTokens.toLocaleString();
+            upBar(state.tokens,state.maxTokens);
+        }
+    }catch(e){}
+}
+
 // ── BOOT ──
 document.addEventListener('DOMContentLoaded',async()=>{
     checkHealth();setInterval(checkHealth,30000);
     loadModels();
     await initChat();
-    state.maxTokens=CN;tM.textContent=CN.toLocaleString();
-    ctT.addEventListener('change',()=>{
-        state.maxTokens=ctT.checked?CM:CN;
-        tM.textContent=state.maxTokens.toLocaleString();
-        upBar(state.tokens,state.maxTokens);
-        toastMsg(ctT.checked?'Contexto 110k':'Contexto 55k','info');
-    });
+    // Cargar contexto del plan (Free=25k, Tester=35k, MAX=35k)
+    await loadPlanContextTokens();
+    // Ocultar toggle de contexto 55k/110k (ahora lo controla el plan)
+    if(ctT)ctT.style.display='none';
 });
 </script>
 </body>
