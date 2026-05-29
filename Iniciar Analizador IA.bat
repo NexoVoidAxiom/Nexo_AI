@@ -314,12 +314,22 @@ echo.
 echo  [1] Estudio completo
 echo  [2] Vista previa (dry-run)
 echo  [3] Con limite (max 5)
+echo  [4] Reanudar desde checkpoint
+echo  [5] Con limite + resume
+echo  [6] Solo un PDF especifico
 echo  [R] Volver
 echo.
+echo  Modelo  : qwen2.5-coder:14b
+echo  Workers : 2
+echo  Fuente  : D:\VOID\knowledge_base
+echo.
 set /p est_op=Opcion: 
-if /i "%est_op%"=="1" python training\study_engine.py --model qwen2.5-coder:14b --workers 1 --source D:\VOID\knowledge_base --qa-per-chunk 2
-if /i "%est_op%"=="2" python training\study_engine.py --model qwen2.5-coder:14b --workers 1 --source D:\VOID\knowledge_base --dry-run
-if /i "%est_op%"=="3" python training\study_engine.py --model qwen2.5-coder:14b --workers 1 --source D:\VOID\knowledge_base --limit 5
+if /i "%est_op%"=="1" python training\study_engine.py --model qwen2.5-coder:14b --workers 2 --source D:\VOID\knowledge_base --qa-per-chunk 2
+if /i "%est_op%"=="2" python training\study_engine.py --model qwen2.5-coder:14b --workers 2 --source D:\VOID\knowledge_base --dry-run
+if /i "%est_op%"=="3" python training\study_engine.py --model qwen2.5-coder:14b --workers 2 --source D:\VOID\knowledge_base --limit 5
+if /i "%est_op%"=="4" python training\study_engine.py --model qwen2.5-coder:14b --workers 2 --source D:\VOID\knowledge_base --qa-per-chunk 2 --resume
+if /i "%est_op%"=="5" python training\study_engine.py --model qwen2.5-coder:14b --workers 2 --source D:\VOID\knowledge_base --limit 5 --resume
+if /i "%est_op%"=="6" set /p pdf_path="Ruta del PDF: " && python training\study_engine.py --model qwen2.5-coder:14b --workers 2 --qa-per-chunk 2 --pdf "%pdf_path%"
 if /i "%est_op%"=="R" goto MENU
 if not "%est_op%"=="" pause
 goto MENU

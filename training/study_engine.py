@@ -51,7 +51,7 @@ QA_PER_CHUNK       = 3
 TIMEOUT_INFERENCE  = 300   # 5 min (GTX 1080 Ti es lenta con 14B)
 TEMPERATURE        = 0.4
 MAX_RETRIES        = 3     # reintentos por inferencia fallida
-WORKERS_DEFAULT    = 1     # chunks en paralelo (1 para modelos grandes como 32B)
+WORKERS_DEFAULT    = 2     # chunks en paralelo
 
 SYSTEM_PROMPT_STUDY = """Eres VOID AXIOM, un experto en programación y ciencias de la computación.
 Tu tarea es estudiar fragmentos de libros y papers técnicos y generar preguntas y respuestas
