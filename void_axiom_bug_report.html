@@ -1,0 +1,223 @@
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); background: transparent; color: var(--color-text-primary); }
+.container { padding: 1rem 0; }
+.summary-row { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+.stat { flex: 1; min-width: 90px; background: var(--color-background-secondary); border: 1px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 12px 14px; text-align: center; }
+.stat .num { font-size: 28px; font-weight: 500; }
+.stat .lbl { font-size: 12px; color: var(--color-text-secondary); margin-top: 2px; }
+.red { color: var(--color-text-danger); }
+.orange { color: var(--color-text-warning); }
+.blue { color: var(--color-text-info); }
+.green { color: var(--color-text-success); }
+.section { margin-bottom: 20px; }
+.section-title { font-size: 13px; font-weight: 500; padding: 6px 10px; border-radius: 6px 6px 0 0; display: flex; align-items: center; gap: 8px; }
+.section-title.critical { background: var(--color-background-danger); color: var(--color-text-danger); border: 1px solid var(--color-border-danger); border-bottom: none; }
+.section-title.warning { background: var(--color-background-warning); color: var(--color-text-warning); border: 1px solid var(--color-border-warning); border-bottom: none; }
+.section-title.info { background: var(--color-background-info); color: var(--color-text-info); border: 1px solid var(--color-border-info); border-bottom: none; }
+.bug-list { border: 1px solid var(--color-border-tertiary); border-radius: 0 0 var(--border-radius-md) var(--border-radius-md); overflow: hidden; }
+.bug-item { padding: 10px 14px; border-bottom: 1px solid var(--color-border-tertiary); font-size: 13px; cursor: pointer; transition: background 0.15s; }
+.bug-item:last-child { border-bottom: none; }
+.bug-item:hover { background: var(--color-background-secondary); }
+.bug-item.open .detail { display: block; }
+.bug-header { display: flex; align-items: flex-start; gap: 10px; }
+.file-tag { font-size: 11px; font-family: var(--font-mono); background: var(--color-background-secondary); border: 1px solid var(--color-border-secondary); border-radius: 4px; padding: 1px 6px; white-space: nowrap; color: var(--color-text-secondary); flex-shrink: 0; margin-top: 1px; }
+.bug-title { flex: 1; font-weight: 500; color: var(--color-text-primary); }
+.chevron { color: var(--color-text-secondary); font-size: 11px; margin-left: auto; flex-shrink: 0; transition: transform 0.2s; }
+.bug-item.open .chevron { transform: rotate(90deg); }
+.detail { display: none; margin-top: 8px; padding: 8px 10px; background: var(--color-background-secondary); border-radius: var(--border-radius-md); font-size: 12px; color: var(--color-text-secondary); line-height: 1.7; }
+.detail code { font-family: var(--font-mono); background: var(--color-background-primary); border: 1px solid var(--color-border-tertiary); border-radius: 3px; padding: 1px 5px; font-size: 11px; color: var(--color-text-primary); }
+.detail .fix { margin-top: 6px; color: var(--color-text-success); font-size: 11px; }
+</style>
+
+<div class="container">
+<h2 class="sr-only">Informe de bugs del proyecto Void Axiom</h2>
+
+<div class="summary-row">
+  <div class="stat"><div class="num red">7</div><div class="lbl">Críticos</div></div>
+  <div class="stat"><div class="num orange">9</div><div class="lbl">Advertencias</div></div>
+  <div class="stat"><div class="num blue">6</div><div class="lbl">Mejoras</div></div>
+  <div class="stat"><div class="num">11</div><div class="lbl">Archivos afectados</div></div>
+</div>
+
+<div class="section">
+  <div class="section-title critical">🔴 Errores críticos — pueden causar crash o comportamiento incorrecto</div>
+  <div class="bug-list" id="critical"></div>
+</div>
+
+<div class="section">
+  <div class="section-title warning">🟡 Advertencias — lógica incorrecta o posibles fallos</div>
+  <div class="bug-list" id="warnings"></div>
+</div>
+
+<div class="section">
+  <div class="section-title info">🔵 Mejoras recomendadas</div>
+  <div class="bug-list" id="info"></div>
+</div>
+</div>
+
+<script>
+const bugs = {
+  critical: [
+    {
+      file: "main.py",
+      title: "Código inalcanzable tras return en _ollama_generate()",
+      detail: "Después del bloque <code>try/except</code> existe una línea <code>if resp.status_code != 200: raise HTTPException(...)</code> que nunca se ejecuta porque el flujo siempre pasa por el <code>return full_response.strip()</code> del try o por el raise del except. Esta línea es letra muerta y confunde.",
+      fix: "Eliminar las líneas orphan al final de _ollama_generate (fuera del try/except)."
+    },
+    {
+      file: "continuous_scraper.py",
+      title: "chunk_text() — yield inside nested function no funciona",
+      detail: "La función interna <code>flush()</code> usa <code>yield</code> pero las funciones anidadas no pueden ceder al generador externo en Python. El yield inside flush nunca llega al caller de <code>chunk_text()</code>. Además, flush declara <code>chunk_id</code> como nonlocal pero luego la modifica con <code>yield from flush()</code> que no funciona como se espera.",
+      fix: "Mover la lógica de flush inline dentro del bucle de chunk_text, o retornar una lista desde flush() y extenderla."
+    },
+    {
+      file: "dataset_builder.py",
+      title: "Mismo bug de yield inside flush() copiado aquí",
+      detail: "Idéntico al bug anterior — <code>chunk_text()</code> en dataset_builder.py tiene la misma función interna <code>flush()</code> con yield que nunca alcanza al generador externo. Los chunks generados en el flush final del bucle nunca se emiten.",
+      fix: "Misma corrección: inline la lógica de flush o retornar lista."
+    },
+    {
+      file: "void_memory.py",
+      title: "ConversationMemory.add() ignora el método push() y rompe _enforce_limits",
+      detail: "<code>add()</code> hace append directo a <code>self._entries</code> y suma tokens manualmente, luego llama <code>self._enforce_limits()</code>. Pero <code>push()</code> ya hace exactamente eso. Tener dos rutas de escritura que suman tokens por separado puede desincontar el total. Si ambas se llaman para el mismo mensaje, el token count se duplica.",
+      fix: "Hacer que add() llame a push() internamente en lugar de duplicar la lógica."
+    },
+    {
+      file: "agent_chat.py",
+      title: "build_context_snapshot llama al setter de messages con una lista de dicts",
+      detail: "<code>memory.messages</code> retorna <code>list[dict]</code> con keys {role, content}, pero <code>message_history.setter</code> en void_memory.py itera esa lista llamando <code>self.push(msg.get('role'), msg.get('content'))</code> — esto pierde los campos <code>agent_id</code>, <code>type</code> y <code>timestamp</code> que existen en los mensajes originales de la sesión.",
+      fix: "Guardar el historial completo en un campo separado o serializar/deserializar los campos extras."
+    },
+    {
+      file: "main.py",
+      title: "stream_response() aplica num_ctx del plan DESPUÉS de verificar el límite de tokens",
+      detail: "El cálculo de <code>_available_for_files</code> usa <code>_num_ctx - estimate_tokens(prompt) - 2000</code>, pero <code>prompt</code> aquí es el prompt original del usuario, no el <code>final_prompt</code> ya enriquecido con resultados web (que puede ser mucho más largo). Esto puede dejar menos espacio del calculado y truncar archivos de forma incorrecta.",
+      fix: "Calcular _available_for_files después de construir final_prompt, usando estimate_tokens(final_prompt)."
+    },
+    {
+      file: "train_night_cron.sh",
+      title: "Variable OLLAMA_BASE_URL usada antes de ser definida",
+      detail: "En la fase FASE 2, el script comprueba <code>curl -sf \"$OLLAMA_BASE_URL/api/tags\"</code> pero <code>OLLAMA_BASE_URL</code> se asigna con <code>${VOID_OLLAMA_BASE_URL:-http://127.0.0.1:11434}</code> DENTRO del bloque if, después del curl. Si la variable de entorno no está seteada, el primer curl usa una cadena vacía.",
+      fix: "Definir OLLAMA_BASE_URL antes del bloque if de FASE 2."
+    }
+  ],
+  warnings: [
+    {
+      file: "main.py",
+      title: "Race condition en _auto_title: puede sobrescribir un título manual",
+      detail: "<code>_auto_title()</code> se lanza como tarea asyncio sin cancelación. Si el usuario renombra el chat antes de que termine la generación del título, el resultado del modelo sobrescribe el nombre manual porque <code>update_chat_title()</code> no verifica si el título fue cambiado manualmente.",
+      fix: "Verificar antes de guardar si el título sigue siendo 'Chat nuevo' o el original."
+    },
+    {
+      file: "database.py",
+      title: "assign_pioneer_plan() tiene TOCTOU — cuenta se puede desfasar",
+      detail: "Lee el count en una transacción y lo usa para calcular pioneer_number, pero entre el SELECT y el UPDATE otro registro puede incrementar el contador. En producción con múltiples registros simultáneos pueden asignarse números de pionero duplicados.",
+      fix: "Usar SELECT COUNT() dentro de la misma transacción con locking, o usar AUTOINCREMENT en una tabla separada de pioneros."
+    },
+    {
+      file: "void_ollama.py",
+      title: "gpu_gate es Semaphore(1) pero OllamaChatClient es instanciado múltiples veces",
+      detail: "Cada <code>AgentSession</code> crea su propia instancia de <code>OllamaChatClient</code> (que antes era <code>VoidOllamaClient</code>), lo que significa que cada sesión tiene su propio semáforo independiente. El objetivo de serializar acceso GPU falla si hay más de una sesión activa.",
+      fix: "Convertir el semáforo en un singleton a nivel de módulo o compartirlo entre instancias."
+    },
+    {
+      file: "agent_chat.py",
+      title: "_emit_agent_turn no espera el lock antes de emitir thinking=True",
+      detail: "El broadcast de <code>thinking: True</code> ocurre fuera del <code>_generation_lock</code>, así que múltiples agentes pueden emitir thinking=True simultáneamente al frontend aunque el lock garantice que solo uno genera a la vez. La UI puede mostrar varios agentes pensando en paralelo.",
+      fix: "Mover el broadcast thinking=True al interior del bloque async with _generation_lock."
+    },
+    {
+      file: "security.py",
+      title: "RateLimiter usa time.monotonic() mezclado con asyncio loop time",
+      detail: "El cleanup de rate limiter usa <code>now - 3600</code> con <code>time.monotonic()</code>, pero las entradas se guardan también con monotonic. Esto es correcto pero el comentario y la comparación de LIMITS usan segundos reales — no hay problema funcional pero puede confundir en entornos con sleep del sistema.",
+      fix: "Menor: solo documentar explícitamente que se usa monotonic."
+    },
+    {
+      file: "pdf_scraper.py",
+      title: "http_get_bytes aplica backoff exponencial incluso en 404/403",
+      detail: "El código maneja 404 y 403 haciendo <code>return None</code> inmediatamente (correcto), pero el bucle for de reintentos continúa igual — si se produce una excepción de red después, el backoff puede ser incorrecto. Además <code>_domain_rate_limit_cooldown</code> no se limpia nunca, puede crecer indefinidamente.",
+      fix: "Limpiar entradas expiradas de _domain_rate_limit_cooldown periódicamente."
+    },
+    {
+      file: "train_qlora.py",
+      title: "gradient_checkpointing_kwargs con use_reentrant=False requiere versión reciente",
+      detail: "<code>use_reentrant=False</code> se introdujo como opción estable en PyTorch 2.1+. El comentario de instalación especifica torch==2.3.0 (correcto), pero si alguien instala con una versión anterior obtendrá un TypeError silencioso en algunos entornos.",
+      fix: "Agregar validación de versión de torch al inicio del script."
+    },
+    {
+      file: "merge.py",
+      title: "convert_to_gguf intenta con convert_hf_to_gguf.py y luego convert.py — puede fallar silenciosamente en llama.cpp moderno",
+      detail: "Las versiones recientes de llama.cpp renombraron el script a <code>convert_hf_to_gguf.py</code>. El fallback a <code>convert.py</code> existía para versiones antiguas. Si ninguno existe, <code>sys.exit(1)</code> aborta sin limpiar archivos temporales.",
+      fix: "Agregar limpieza de archivos temporales antes de sys.exit."
+    },
+    {
+      file: "study_engine.py",
+      title: "save_checkpoint llama a json.dump con entries que puede no ser serializable",
+      detail: "<code>entries</code> es una lista de dicts con valores de tipo <code>datetime</code> o floats en algunos casos según cómo se construyen en process_file. Si algún valor no es JSON-serializable, el checkpoint falla silenciosamente con un <code>except: pass</code> implícito en el caller.",
+      fix: "Usar default=str en json.dump o validar los entries antes de guardar."
+    }
+  ],
+  info: [
+    {
+      file: "main.py",
+      title: "_search_cache puede crecer indefinidamente en memoria",
+      detail: "El diccionario <code>_SEARCH_CACHE</code> nunca se limpia de entradas expiradas salvo en la siguiente lectura del mismo key. En una app con muchas queries distintas la memoria crece sin límite.",
+      fix: "Limitar el tamaño del caché (ej: max 200 entradas) con un LRU o limpiar periódicamente."
+    },
+    {
+      file: "database.py / data_base.py",
+      title: "Dos archivos de base de datos duplicados con lógica diferente",
+      detail: "<code>database.py</code> y <code>data_base.py</code> implementan funciones similares. data_base.py usa SHA-256 para passwords (inseguro), database.py usa bcrypt. Si algo importa data_base.py por error, las contraseñas son vulnerables.",
+      fix: "Eliminar data_base.py del proyecto o renombrarlo claramente como legacy/deprecated."
+    },
+    {
+      file: "continuous_scraper.py",
+      title: "requests.Session mezclado con urllib.request en el mismo archivo",
+      detail: "El archivo importa <code>requests</code> y usa <code>_session = requests.Session()</code>, pero también importa <code>urllib.request</code> que no se usa en ningún lugar del código activo.",
+      fix: "Eliminar el import de urllib.request no utilizado."
+    },
+    {
+      file: "void_agents.py",
+      title: "CORRUPT_RESPONSE_MARKERS contiene strings muy genéricos",
+      detail: "Markers como <code>'fallback'</code> o <code>'sistema'</code> son tan genéricos que podrían rechazar respuestas legítimas donde un agente mencione una estrategia de fallback o hable del 'sistema'.",
+      fix: "Hacer los markers más específicos o buscarlos en contexto (regex de línea completa)."
+    },
+    {
+      file: "agent_chat.py",
+      title: "rolling_summary ya no existe en la nueva versión pero se referencia",
+      detail: "El atributo <code>self.rolling_summary</code> se inicializa y limpia en start_session, pero nunca se actualiza en el nuevo código (la lógica de resumen fue eliminada del refactor). El atributo es letra muerta.",
+      fix: "Eliminar rolling_summary del código si ya no se usa."
+    },
+    {
+      file: "dispatcher.py",
+      title: "ModelDispatcher.dispatcher es un singleton que nunca se inicializa",
+      detail: "Al final del archivo se crea <code>dispatcher = ModelDispatcher()</code> pero <code>initialize()</code> (que precarga los modelos) nunca se llama desde el módulo. Se necesita llamarlo explícitamente desde el startup de la app o en un lifespan handler.",
+      fix: "Llamar await dispatcher.initialize() en el lifespan de FastAPI si se usa este dispatcher."
+    }
+  ]
+};
+
+function renderBugs(id, list) {
+  const container = document.getElementById(id);
+  list.forEach((bug, i) => {
+    const el = document.createElement('div');
+    el.className = 'bug-item';
+    el.innerHTML = `
+      <div class="bug-header">
+        <span class="file-tag">${bug.file}</span>
+        <span class="bug-title">${bug.title}</span>
+        <span class="chevron">▶</span>
+      </div>
+      <div class="detail">${bug.detail}<div class="fix">✓ Solución: ${bug.fix}</div></div>
+    `;
+    el.addEventListener('click', () => el.classList.toggle('open'));
+    container.appendChild(el);
+  });
+}
+
+renderBugs('critical', bugs.critical);
+renderBugs('warnings', bugs.warnings);
+renderBugs('info', bugs.info);
+</script>
