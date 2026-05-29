@@ -167,46 +167,278 @@
             flex-wrap: wrap;
         }
 
-        /* ── MODEL BUTTONS ── */
-        .model-btns {
-            display: flex;
-            gap: 3px;
-            background: var(--bg-1);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 3px;
+        /* ── MODEL DROPDOWN ── */
+        .model-selector {
+            position: relative;
         }
 
-        .model-btn {
-            background: transparent;
-            border: none;
-            border-radius: 5px;
-            color: var(--text-2);
-            padding: 4px 11px;
-            font-size: 11px;
-            font-weight: 700;
-            font-family: var(--font-mono);
+        .model-selector-btn {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            background: var(--bg-1);
+            border: 1px solid var(--border-mid);
+            border-radius: 8px;
+            padding: 5px 10px 5px 11px;
             cursor: pointer;
             transition: all 0.2s;
+            font-family: var(--font);
+            min-width: 155px;
+            max-width: 200px;
+        }
+
+        .model-selector-btn:hover {
+            border-color: var(--border-glow);
+            background: var(--bg-2);
+            box-shadow: 0 0 12px rgba(0,200,255,0.08);
+        }
+
+        .model-selector-btn.open {
+            border-color: var(--border-glow);
+            background: var(--bg-2);
+            box-shadow: 0 0 12px rgba(0,200,255,0.12);
+        }
+
+        .msb-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 6px var(--accent-glow);
+            flex-shrink: 0;
+            transition: background 0.3s;
+        }
+
+        .msb-dot.loading {
+            background: var(--orange);
+            animation: pulse-dot 1s infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%,100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        .msb-name {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text);
+            font-family: var(--font-mono);
+            letter-spacing: 0.02em;
+            flex: 1;
             white-space: nowrap;
-            letter-spacing: 0.03em;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
-        .model-btn:hover {
+        .msb-tag {
+            font-size: 9px;
+            font-weight: 700;
+            padding: 1px 5px;
+            border-radius: 4px;
+            background: rgba(0,200,255,0.12);
             color: var(--accent);
-            background: rgba(0,200,255,0.08);
+            border: 1px solid rgba(0,200,255,0.2);
+            flex-shrink: 0;
         }
 
-        .model-btn.active {
-            background: rgba(0,200,255,0.15);
-            color: var(--accent);
-            box-shadow: 0 0 8px rgba(0,200,255,0.2);
+        .msb-chevron {
+            color: var(--text-3);
+            font-size: 10px;
+            transition: transform 0.2s;
+            flex-shrink: 0;
         }
 
-        .model-btn.unavailable {
-            opacity: 0.35;
+        .model-selector-btn.open .msb-chevron {
+            transform: rotate(180deg);
+        }
+
+        /* Dropdown panel */
+        .model-dropdown {
+            display: none;
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            min-width: 280px;
+            background: var(--bg-1);
+            border: 1px solid var(--border-mid);
+            border-radius: var(--r-lg);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(0,200,255,0.06);
+            z-index: 9000;
+            overflow: hidden;
+            animation: dropIn 0.18s cubic-bezier(0.16,1,0.3,1);
+        }
+
+        .model-dropdown.open {
+            display: block;
+        }
+
+        @keyframes dropIn {
+            from { opacity:0; transform: translateY(-8px) scale(0.97); }
+            to   { opacity:1; transform: translateY(0) scale(1); }
+        }
+
+        .md-header {
+            padding: 10px 14px 6px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .md-header-label {
+            font-size: 9px;
+            font-weight: 700;
+            color: var(--text-3);
+            text-transform: uppercase;
+            letter-spacing: 0.12em;
+            flex: 1;
+        }
+
+        .md-header-gpu {
+            font-size: 9px;
+            color: var(--text-3);
+            font-family: var(--font-mono);
+            background: var(--bg-2);
+            padding: 1px 6px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+        }
+
+        .md-list {
+            padding: 4px 6px 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .md-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+            border: 1px solid transparent;
+            position: relative;
+        }
+
+        .md-item:hover {
+            background: rgba(0,200,255,0.06);
+            border-color: var(--border);
+        }
+
+        .md-item.active {
+            background: rgba(0,200,255,0.1);
+            border-color: rgba(0,200,255,0.25);
+        }
+
+        .md-item.unavailable {
+            opacity: 0.45;
             cursor: not-allowed;
         }
+
+        .md-item.unavailable:hover {
+            background: transparent;
+            border-color: transparent;
+        }
+
+        .md-icon {
+            width: 30px;
+            height: 30px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            flex-shrink: 0;
+            background: var(--bg-2);
+            border: 1px solid var(--border);
+        }
+
+        .md-item.active .md-icon {
+            background: rgba(0,200,255,0.12);
+            border-color: rgba(0,200,255,0.3);
+        }
+
+        .md-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .md-name {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text);
+            font-family: var(--font-mono);
+            letter-spacing: 0.01em;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .md-desc {
+            font-size: 10px;
+            color: var(--text-3);
+            margin-top: 1px;
+        }
+
+        .md-badges {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+
+        .md-badge {
+            font-size: 9px;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+        }
+
+        .md-badge.speed { background: rgba(0,229,160,0.12); color: var(--green); }
+        .md-badge.quality { background: rgba(124,95,240,0.12); color: var(--violet); }
+        .md-badge.balance { background: rgba(0,200,255,0.12); color: var(--accent); }
+        .md-badge.soon { background: rgba(255,170,0,0.1); color: var(--orange); }
+
+        .md-check {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 1.5px solid var(--border);
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .md-item.active .md-check {
+            background: var(--accent);
+            border-color: var(--accent);
+            box-shadow: 0 0 6px var(--accent-glow);
+        }
+
+        .md-check-inner {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--bg-base);
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .md-item.active .md-check-inner { opacity: 1; }
+
+        .md-divider {
+            height: 1px;
+            background: var(--border);
+            margin: 4px 10px;
+        }
+
+        /* Mantener clases vacías por compatibilidad con JS existente */
+        .model-btn { display: none; }
 
         /* ── TOGGLE, BADGE ── */
         .toggle {
@@ -1851,44 +2083,99 @@
 
         .mob-backdrop.open { display: block; }
 
+        /* ─── TABLET (≤1100px) ─── */
+        @media (max-width: 1100px) {
+            .app-container { grid-template-columns: 180px 240px 1fr; }
+        }
+
+        /* ─── MOBILE/TABLET (≤860px) ─── */
         @media (max-width: 860px) {
             .mob-btn { display: flex; align-items: center; justify-content: center; }
             .app-container { grid-template-columns: 1fr; grid-template-rows: 52px 1fr; }
-            .header { padding: 8px 12px; gap: 8px; }
+            .header { padding: 0 10px; gap: 8px; height: 52px; flex-wrap: nowrap; }
             .header-left h1 { font-size: 13px; }
             .header-left .sub { display: none; }
-            .header-right { flex-wrap: wrap; gap: 6px; }
+            .header-right {
+                flex-wrap: nowrap;
+                gap: 6px;
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+            }
+            .header-right::-webkit-scrollbar { display: none; }
+            /* Dropdown se abre hacia abajo desde la derecha en móvil */
+            .model-dropdown {
+                left: auto;
+                right: 0;
+                min-width: 260px;
+            }
             .sidebar {
                 position: fixed; left: 0; top: 0; bottom: 0; z-index: 300;
-                width: 260px; transform: translateX(-100%);
-                transition: transform 0.25s ease;
+                width: min(280px, 85vw);
+                transform: translateX(-100%);
+                transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+                box-shadow: 4px 0 24px rgba(0,0,0,0.4);
             }
             .sidebar.mob-open { transform: translateX(0); }
             .panel-left {
                 position: fixed; left: 0; top: 0; bottom: 0; z-index: 300;
-                width: 280px; transform: translateX(-100%);
-                transition: transform 0.25s ease;
+                width: min(300px, 90vw);
+                transform: translateX(-100%);
+                transition: transform 0.25s cubic-bezier(0.4,0,0.2,1);
+                box-shadow: 4px 0 24px rgba(0,0,0,0.4);
             }
             .panel-left.mob-open { transform: translateX(0); }
             .panel-right { grid-column: 1; height: calc(100vh - 52px); }
-            .input-area { padding: 8px 10px; }
+            .input-area { padding: 8px 10px; gap: 6px; }
             .input-area textarea { font-size: 16px; min-height: 40px; }
             .input-area .send { width: 42px; height: 42px; font-size: 16px; flex-shrink: 0; }
-            .messages { padding: 10px; }
-            .msg { max-width: 95%; font-size: 13px; }
+            .messages { padding: 10px 12px; gap: 8px; }
+            .msg { max-width: 92%; font-size: 13.5px; }
             .chat-actions { gap: 4px; }
             .mini-btn { padding: 3px 6px; font-size: 10px; }
-            .modal, .plan-modal { max-width: 100%; max-height: 95vh; border-radius: var(--r-lg) var(--r-lg) 0 0; }
+            .modal, .plan-modal {
+                max-width: 100%;
+                max-height: 92vh;
+                border-radius: var(--r-lg) var(--r-lg) 0 0;
+                margin: 0;
+            }
             .modal-bg, .plan-modal-bg { align-items: flex-end; padding: 0; }
             .toggle { display: none; }
             .tbar { font-size: 10px; padding: 3px 10px; }
+            /* Ocultar botones menos esenciales en móvil */
+            .btn[onclick="clearAll()"] { display: none; }
+            .model-selector-btn { min-width: 130px; }
+            .msb-tag { display: none; }
         }
 
+        /* ─── SMALL PHONE (≤480px) ─── */
         @media (max-width: 480px) {
-            .model-btns { gap: 2px; }
-            .model-btn { padding: 3px 8px; font-size: 10px; }
-            .header-right .btn { padding: 4px 8px; font-size: 10px; }
-            .chat-header h2 { font-size: 12px; }
+            .header { padding: 0 8px; gap: 6px; }
+            .header-left h1 { font-size: 12px; }
+            .header-right .btn { padding: 4px 7px; font-size: 10px; }
+            .chat-header { padding: 7px 10px; }
+            .chat-header h2 { font-size: 12px; max-width: 160px; }
+            .messages { padding: 8px; }
+            .msg { max-width: 96%; font-size: 13px; padding: 8px 11px; }
+            .model-selector-btn { min-width: 120px; padding: 5px 8px; }
+            .msb-name { font-size: 11px; }
+            .input-area textarea { font-size: 16px; }
+            .plan-limits-grid { grid-template-columns: 1fr 1fr; }
+            /* La grid de planes en 1 col en teléfonos */
+            #ptab-programa > div:nth-child(2) > div { grid-template-columns: 1fr; }
+        }
+
+        /* ─── EXTRA SMALL (≤360px) ─── */
+        @media (max-width: 360px) {
+            .header-left h1 span.brand-icon { display: none; }
+            .badge span:not(.dot) { display: none; }
+            .model-selector-btn { min-width: 100px; }
+        }
+
+        /* ─── LARGE DESKTOP (≥1400px) ─── */
+        @media (min-width: 1400px) {
+            .app-container { grid-template-columns: 220px 300px 1fr; }
+            .msg { max-width: 78%; }
         }
     </style>
 </head>
@@ -2157,11 +2444,72 @@
       <span class="sub">GTX 1080 Ti · i7-9700K</span>
     </div>
     <div class="header-right">
-      <div class="model-btns">
-        <button class="model-btn" id="mbtn-3b" onclick="switchModel('qwen2.5-coder:3b')" title="Rápido">Nexo Lite 1.0</button>
-        <button class="model-btn" id="mbtn-7b" onclick="switchModel('qwen2.5-coder:7b-instruct')" title="Balance">Nexo Coder 1.0</button>
-        <button class="model-btn" id="mbtn-14b" onclick="switchModel('qwen2.5-coder:14b')" title="Calidad">Nexo Pro 1.0</button>
-        <button class="model-btn unavailable" id="mbtn-32b" disabled title="Próximamente - requiere más VRAM" onclick="return false;">32B <span style="font-size:9px;color:var(--orange)">próximamente</span></button>
+      <!-- MODEL DROPDOWN -->
+      <div class="model-selector" id="modelSelector">
+        <button class="model-selector-btn" id="modelSelectorBtn" onclick="toggleModelDropdown()" aria-haspopup="listbox" aria-expanded="false">
+          <span class="msb-dot" id="msbDot"></span>
+          <span class="msb-name" id="msbName">Nexo Lite 1.0</span>
+          <span class="msb-tag" id="msbTag">3B</span>
+          <svg class="msb-chevron" viewBox="0 0 10 6" width="10" height="6" fill="none">
+            <path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+        <div class="model-dropdown" id="modelDropdown" role="listbox">
+          <div class="md-header">
+            <span class="md-header-label">Modelos Nexo</span>
+            <span class="md-header-gpu">GTX 1080 Ti</span>
+          </div>
+          <div class="md-list">
+            <!-- 3B -->
+            <div class="md-item active" id="mditem-3b" role="option" onclick="pickModel('qwen2.5-coder:3b','Nexo Lite 1.0','3B')">
+              <div class="md-icon">⚡</div>
+              <div class="md-info">
+                <div class="md-name">Nexo Lite 1.0</div>
+                <div class="md-desc">Respuestas instantáneas · ideal para tareas rápidas</div>
+              </div>
+              <div class="md-badges"><span class="md-badge speed">Rápido</span></div>
+              <div class="md-check"><div class="md-check-inner"></div></div>
+            </div>
+            <!-- 7B -->
+            <div class="md-item" id="mditem-7b" role="option" onclick="pickModel('qwen2.5-coder:7b-instruct','Nexo Coder 1.0','7B')">
+              <div class="md-icon">🔧</div>
+              <div class="md-info">
+                <div class="md-name">Nexo Coder 1.0</div>
+                <div class="md-desc">Equilibrio velocidad/calidad · código y análisis</div>
+              </div>
+              <div class="md-badges"><span class="md-badge balance">Balance</span></div>
+              <div class="md-check"><div class="md-check-inner"></div></div>
+            </div>
+            <!-- 14B -->
+            <div class="md-item" id="mditem-14b" role="option" onclick="pickModel('qwen2.5-coder:14b','Nexo Pro 1.0','14B')">
+              <div class="md-icon">🧠</div>
+              <div class="md-info">
+                <div class="md-name">Nexo Pro 1.0</div>
+                <div class="md-desc">Máxima calidad · razonamiento profundo</div>
+              </div>
+              <div class="md-badges"><span class="md-badge quality">Potente</span></div>
+              <div class="md-check"><div class="md-check-inner"></div></div>
+            </div>
+            <div class="md-divider"></div>
+            <!-- 32B próximamente -->
+            <div class="md-item unavailable" id="mditem-32b" role="option" aria-disabled="true">
+              <div class="md-icon" style="opacity:0.5">🚀</div>
+              <div class="md-info">
+                <div class="md-name" style="color:var(--text-3)">Nexo Ultra</div>
+                <div class="md-desc">Requiere más VRAM · en desarrollo</div>
+              </div>
+              <div class="md-badges"><span class="md-badge soon">Pronto</span></div>
+              <div class="md-check" style="opacity:0.3"><div class="md-check-inner"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- botones ocultos para compatibilidad con JS existente -->
+      <div style="display:none">
+        <button class="model-btn" id="mbtn-3b"></button>
+        <button class="model-btn" id="mbtn-7b"></button>
+        <button class="model-btn" id="mbtn-14b"></button>
+        <button class="model-btn" id="mbtn-32b"></button>
       </div>
       <div class="toggle" style="display:none"><span>Ctx</span><input type="checkbox" id="ctxToggle"></div>
       <div class="badge"><span class="dot" id="statusDot"></span><span id="statusText">Conectando...</span></div>
@@ -2356,6 +2704,64 @@ async function switchModel(modelName){
         if(r.ok){state.currentModel=d.model;setActiveModelBtn(d.model);toastMsg('Modelo: '+getModelDisplayName(d.model||d.current||''),'info');}
         else toastMsg(d.detail||'Error','err');
     }catch(e){toastMsg('Error cambiando modelo','err');}
+}
+
+// ── MODEL DROPDOWN UI ──
+const MODEL_DROPDOWN_META = {
+    'qwen2.5-coder:3b':             { name:'Nexo Lite 1.0',  tag:'3B',  item:'mditem-3b'  },
+    'qwen2.5-coder:7b-instruct':    { name:'Nexo Coder 1.0', tag:'7B',  item:'mditem-7b'  },
+    'qwen2.5-coder:14b':            { name:'Nexo Pro 1.0',   tag:'14B', item:'mditem-14b' },
+};
+function toggleModelDropdown(){
+    const btn=$('modelSelectorBtn');
+    const dd=$('modelDropdown');
+    const open=dd.classList.toggle('open');
+    btn.classList.toggle('open',open);
+    btn.setAttribute('aria-expanded',open);
+}
+function closeModelDropdown(){
+    $('modelDropdown').classList.remove('open');
+    $('modelSelectorBtn').classList.remove('open');
+    $('modelSelectorBtn').setAttribute('aria-expanded','false');
+}
+function pickModel(modelId,displayName,tag){
+    closeModelDropdown();
+    // Actualizar UI inmediatamente
+    updateDropdownSelection(modelId);
+    switchModel(modelId);
+}
+function updateDropdownSelection(modelId){
+    // Quitar active de todos
+    document.querySelectorAll('.md-item:not(.unavailable)').forEach(el=>el.classList.remove('active'));
+    // Actualizar botón principal
+    const meta=MODEL_DROPDOWN_META[modelId];
+    if(meta){
+        const item=$(meta.item);
+        if(item) item.classList.add('active');
+        $('msbName').textContent=meta.name;
+        $('msbTag').textContent=meta.tag;
+    } else {
+        $('msbName').textContent=getModelDisplayName(modelId);
+        $('msbTag').textContent='';
+    }
+}
+// Cerrar dropdown al hacer clic fuera
+document.addEventListener('click',function(e){
+    const sel=$('modelSelector');
+    if(sel&&!sel.contains(e.target)) closeModelDropdown();
+});
+// Cerrar con Escape
+document.addEventListener('keydown',function(e){
+    if(e.key==='Escape') closeModelDropdown();
+});
+// Sobrescribir setActiveModelBtn para actualizar también el dropdown
+const _origSetActiveModelBtn=setActiveModelBtn;
+function setActiveModelBtn(name){
+    _origSetActiveModelBtn(name);
+    // Actualizar visual del dropdown
+    const dot=$('msbDot');
+    if(dot) dot.classList.remove('loading');
+    updateDropdownSelection(name);
 }
 
 // ── SIDEBAR / CHATS ──
