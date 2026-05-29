@@ -44,6 +44,7 @@ import argparse
 import urllib.request
 import urllib.parse
 import urllib.error
+import random as _random
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime
@@ -63,10 +64,12 @@ log = logging.getLogger("pdf_scraper")
 
 # ── Configuración global ──────────────────────────────────────────────────────
 KNOWLEDGE_BASE_DIR = Path(os.environ.get("KNOWLEDGE_BASE", "./knowledge_base"))
-DELAY_BASE         = 2.0      # segundos base entre peticiones al mismo dominio
+DELAY_BASE         = 4.0      # segundos base entre peticiones al mismo dominio
+ARXIV_DELAY        = 6.0      # delay específico para arXiv (más conservador)
 MAX_FILE_SIZE_MB   = 60
-TIMEOUT_SECONDS    = 45
-MAX_RETRIES        = 3
+TIMEOUT_SECONDS    = 60
+MAX_RETRIES        = 4        # reintentos máximos por petición (evita bucles infinitos)
+BACKOFF_CAP        = 60.0     # tiempo máximo de backoff (1 minuto)
 DB_FILE            = "pdf_scraper.db"
 
 HEADERS = {
@@ -200,39 +203,75 @@ class DownloadDB:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 _domain_last_hit: dict[str, float] = {}
+_domain_rate_limit_cooldown: dict[str, float] = {}  # cuándo podemos volver a consultar un dominio que nos rate-limitó
 
 
 def _domain_delay(url: str, extra: float = 0.0):
-    """Espera el tiempo necesario antes de hacer otra petición al mismo dominio."""
+    """
+    Espera el tiempo necesario antes de hacer otra petición al mismo dominio.
+    Usa DELAY_BASE por defecto, pero ARXIV_DELAY para dominios de arXiv.
+    También respeta cooldowns tras rate limits previos.
+    """
     domain = urllib.parse.urlparse(url).netloc
+    
+    # Cooldown post-rate-limit: si el dominio nos dio 429 antes, esperamos hasta que expire
+    cooldown_until = _domain_rate_limit_cooldown.get(domain, 0.0)
+    now = time.time()
+    if cooldown_until > now:
+        wait = cooldown_until - now
+        log.info(f"  ⏳ Cooldown activo para {domain}, esperando {wait:.0f}s...")
+        time.sleep(wait)
+    
+    # Delay entre peticiones normales
     last = _domain_last_hit.get(domain, 0)
-    wait = DELAY_BASE + extra - (time.time() - last)
+    # Usar delay específico para arXiv (más conservador) o el base genérico
+    base_delay = ARXIV_DELAY if "arxiv.org" in domain else DELAY_BASE
+    wait = base_delay + extra - (time.time() - last)
     if wait > 0:
         time.sleep(wait)
     _domain_last_hit[domain] = time.time()
 
 
+def _jitter(base: float, max_pct: float = 0.25) -> float:
+    """Añade jitter aleatorio de ±max_pct% a un valor base."""
+    return base * (1.0 + _random.uniform(-max_pct, max_pct))
+
+
 def http_get_bytes(url: str, retries: int = MAX_RETRIES) -> bytes | None:
-    """GET con reintentos y backoff exponencial."""
+    """GET con reintentos, backoff exponencial con jitter y cooldown persistente por dominio."""
+    domain = urllib.parse.urlparse(url).netloc
+    
     for attempt in range(retries):
-        _domain_delay(url, extra=attempt * 1.5)
+        _domain_delay(url)
         try:
             req = urllib.request.Request(url, headers=HEADERS)
             with urllib.request.urlopen(req, timeout=TIMEOUT_SECONDS) as resp:
                 return resp.read()
         except urllib.error.HTTPError as e:
             if e.code in (429, 503):
-                wait = 2 ** (attempt + 2)
-                log.warning(f"  ⚠ Rate limit ({e.code}), esperando {wait}s...")
+                # Backoff exponencial con jitter + cooldown persistente
+                # Para arXiv usamos cooldown mucho más agresivo (x5) porque es muy restrictivo
+                wait = min(BACKOFF_CAP, _jitter(2 ** (attempt + 2)))
+                arxiv_penalty = 5.0 if "arxiv.org" in domain else 1.5
+                cooldown_mult = arxiv_penalty + attempt  # aumenta con cada intento
+                log.warning(f"  ⚠ Rate limit ({e.code}) en {domain}, esperando {wait:.0f}s (intento {attempt+1}/{retries})...")
+                # Guardar cooldown para que el dominio descanse incluso entre requests
+                _domain_rate_limit_cooldown[domain] = time.time() + wait * cooldown_mult
                 time.sleep(wait)
+                # Para arXiv específicamente, esperar más entre requests
+                if "arxiv.org" in domain:
+                    _domain_last_hit[domain] = time.time() + 2.0  # delay extra para siguiente request
             elif e.code in (404, 403, 410):
                 log.debug(f"  ✗ HTTP {e.code}: {url}")
                 return None
             else:
-                log.warning(f"  ⚠ HTTP {e.code} (intento {attempt+1}): {url}")
+                log.warning(f"  ⚠ HTTP {e.code} (intento {attempt+1}/{retries}): {url}")
+                time.sleep(_jitter(1.0))
         except Exception as e:
-            log.warning(f"  ⚠ Error (intento {attempt+1}): {e}")
-            time.sleep(2 ** attempt)
+            log.warning(f"  ⚠ Error (intento {attempt+1}/{retries}): {e}")
+            time.sleep(_jitter(2 ** attempt))
+    
+    log.warning(f"  ✗ Agotados {retries} reintentos para {url}")
     return None
 
 
