@@ -3,6 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="shortcut icon" href="/static/favicon.svg">
     <title>Nexo AI | Sistema Multi-Agente de Void Axiom</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -2310,6 +2312,20 @@ function addSys(t){const d=document.createElement('div');d.className='msg system
 
 // ── MODELOS ──
 const MODEL_MAP={'qwen2.5-coder:3b':'mbtn-3b','qwen2.5-coder:7b-instruct':'mbtn-7b','qwen2.5-coder:14b':'mbtn-14b'};
+// Nombres amigables para mostrar en la UI en lugar del nombre real de Ollama
+const MODEL_DISPLAY_NAMES={
+    'qwen2.5-coder:3b':'Nexo Lite 1.0',
+    'qwen2.5-coder:7b-instruct':'Nexo Coder 1.0',
+    'qwen2.5-coder:14b':'Nexo Pro 1.0',
+};
+function getModelDisplayName(modelName){
+    if(MODEL_DISPLAY_NAMES[modelName])return MODEL_DISPLAY_NAMES[modelName];
+    // Fallback: intentar matching parcial
+    for(var k in MODEL_DISPLAY_NAMES){
+        if(modelName.startsWith(k)||k.startsWith(modelName))return MODEL_DISPLAY_NAMES[k];
+    }
+    return modelName;
+}
 function setActiveModelBtn(name){
     Object.entries(MODEL_MAP).forEach(([k,id])=>{
         const btn=$(id);if(!btn)return;
@@ -2338,7 +2354,7 @@ async function switchModel(modelName){
     try{
         const r=await fetch('/api/models/switch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:modelName})});
         const d=await r.json();
-        if(r.ok){state.currentModel=d.model;setActiveModelBtn(d.model);toastMsg('Modelo: '+d.model,'info');}
+        if(r.ok){state.currentModel=d.model;setActiveModelBtn(d.model);toastMsg('Modelo: '+getModelDisplayName(d.model||d.current||''),'info');}
         else toastMsg(d.detail||'Error','err');
     }catch(e){toastMsg('Error cambiando modelo','err');}
 }
@@ -2534,7 +2550,7 @@ async function exportChat(){
 async function checkHealth(){
     try{
         const r=await fetch('/health');const d=await r.json();
-        if(d.ollama_available){idot.className='ind on';stT.textContent='Ollama listo';sD.className='dot on';sT2.textContent=d.model;if(d.model&&d.model!==state.currentModel){state.currentModel=d.model;setActiveModelBtn(d.model);}}
+        if(d.ollama_available){idot.className='ind on';stT.textContent='Ollama listo';sD.className='dot on';sT2.textContent=getModelDisplayName(d.model||'')||d.model;if(d.model&&d.model!==state.currentModel){state.currentModel=d.model;setActiveModelBtn(d.model);}}
         else{idot.className='ind off';stT.textContent='Desconectado';sD.className='dot off';sT2.textContent='Offline';}
     }catch(e){idot.className='ind off';stT.textContent='Error';sD.className='dot off';sT2.textContent='Error';}
 }
@@ -2544,6 +2560,8 @@ async function initChat(){
     try{
         const me=await fetch('/api/auth/me');
         if(me.ok){const mj=await me.json();if(mj.email&&mj.email.toLowerCase()==='elgatosuperpitzzero@gmail.com'){state.isAdmin=true;$('adminBtn').style.display='';$('voidBtn').style.display='';}}
+        // Cargar el modelo activo inmediatamente desde /health
+        try{const hr=await fetch('/health');const hd=await hr.json();if(hd.model){state.currentModel=hd.model;setActiveModelBtn(hd.model);sT2.textContent=getModelDisplayName(hd.model||'')||hd.model;}}catch(e){}
         const r=await fetch('/api/chats');const d=await r.json();const chats=d.chats||[];
         if(chats.length>0){
             state.currentChatId=chats[0].id;chatTitle.textContent=chats[0].title||'Chat IA';
@@ -2719,41 +2737,85 @@ async function activateCode(){
     try{
         var r=await fetch('/api/redeem-code',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})});
         var d=await r.json();
-        if(r.ok){toastMsg('¡Plan '+d.plan+' activado! 🎉','ok');var msg=$('redeemMsg');if(msg){msg.textContent=d.message||'Plan MAX activado';msg.style.display='block';msg.className='don-redeem-msg ok';}inp.value='';}
+        if(r.ok){
+            toastMsg('¡Plan '+d.plan+' activado! 🎉','ok');
+            var msg=$('redeemMsg');if(msg){msg.textContent=d.message||'Plan MAX activado';msg.style.display='block';msg.className='don-redeem-msg ok';}inp.value='';
+            // Actualizar badge y UI del plan inmediatamente
+            updatePlanBadge(d.plan||'plan_max');
+            updatePlanCard(d.plan||'plan_max', null);
+        }
         else toastMsg(d.detail||'Código inválido','err');
     }catch(e){toastMsg('Error','err');}
 }
+// Helper to update header badge
+function updatePlanBadge(plan){
+    var badge=$('planBtn');
+    if(!badge)return;
+    if(plan==='plan_max'||plan==='plan_max_pioneer'){
+        badge.className='plan-badge max';
+        badge.innerHTML='⭐ MAX';
+    }else if(plan==='plan_tester'){
+        badge.className='plan-badge';
+        badge.style.cssText='display:flex;align-items:center;gap:5px;padding:4px 11px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid;transition:all 0.2s;white-space:nowrap;background:rgba(0,229,160,0.08);border-color:rgba(0,229,160,0.35);color:var(--green)';
+        badge.innerHTML='🧪 TESTER';
+    }else{
+        badge.className='plan-badge free';
+        badge.innerHTML='⭐ Free';
+    }
+}
+// Helper to update plan card
+function updatePlanCard(plan, pioneerInfo){
+    var card=$('planUserCard');if(!card)return;
+    var isMax=(plan==='plan_max'||plan==='plan_max_pioneer');
+    var isTester=(plan==='plan_tester');
+    if(pioneerInfo&&pioneerInfo.is_pioneer){
+        card.innerHTML='<h3>🚀 Pionero #'+pioneerInfo.pioneer_number+'</h3><p style="font-size:12px;color:var(--text-2)">Plan MAX activado. Eres uno de los '+pioneerInfo.max_slots+' primeros en apoyar este proyecto.</p>';
+    }else if(isMax){
+        card.innerHTML='<h3>⭐ Plan MAX</h3><p style="font-size:12px;color:var(--text-2)">Gracias por tu apoyo. Disfrutas de todas las funciones premium.</p>';
+    }else if(isTester){
+        card.innerHTML='<h3>🧪 Plan TESTER</h3><p style="font-size:12px;color:var(--text-2)">100 mensajes/día, archivos de 10MB. Gracias por confiar en el proyecto.</p>';
+    }else{
+        card.innerHTML='<h3>⭐ Plan Free</h3><p style="font-size:12px;color:var(--text-2)">Límite de 20 mensajes/día. Donar desbloquea Plan MAX o Tester.</p>';
+    }
+}
 // Load pioneer info on plan open AND update header badge
 async function loadPlanData(){
-    if(!state.currentChatId)return;
     try{
         var u=await fetch('/api/auth/me');if(!u.ok)return;var uj=await u.json();
-        var p=await fetch('/api/pioneers/status');if(!p.ok)return;var pj=await p.json();
-        var card=$('planUserCard');if(!card)return;
-        var badge=$('planBtn');
-        var plan=pj.plan||'free_limited';
-        var isMax=(plan==='plan_max')||pj.is_pioneer;
-        if(isMax){
-            card.innerHTML='<h3>⭐ Plan MAX</h3><p style="font-size:12px;color:var(--text-2)">Gracias por tu apoyo. Disfrutas de todas las funciones premium.</p>';
-            if(badge){badge.className='plan-badge max';badge.innerHTML='⭐ MAX';}
-        }else{
-            card.innerHTML='<h3>⭐ Plan Free</h3><p style="font-size:12px;color:var(--text-2)">Límite de 20 mensajes/día. Donar desbloquea Plan MAX.</p>';
-            if(badge){badge.className='plan-badge free';badge.innerHTML='⭐ Free';}
+        var isAdmin=uj.is_admin||false;
+        // Obtener pioneers status para datos completos
+        var pj=null;
+        try{var pr=await fetch('/api/pioneers/status');if(pr.ok)pj=await pr.json();}catch(e){}
+        // Determinar plan desde /api/auth/me (que ahora incluye plan)
+        var plan=uj.plan||'free_limited';
+        if(pj&&pj.plan)plan=pj.plan;
+        // Actualizar badge y card
+        updatePlanBadge(plan);
+        updatePlanCard(plan, pj);
+        // Admin override
+        if(isAdmin){
+            var admCard=$('planUserCard');
+            if(admCard)admCard.innerHTML='<h3>👑 Administrador (Aerys)</h3><p style="font-size:12px;color:var(--text-2)">Acceso completo a todos los planes y funciones del sistema.</p>';
         }
-        if(pj.is_pioneer){
-            card.innerHTML='<h3>🚀 Pionero #'+pj.pioneer_number+'</h3><p style="font-size:12px;color:var(--text-2)">Plan MAX activado. Eres uno de los '+pj.max_slots+' primeros en apoyar este proyecto.</p>';
-        }
-        // Also update the daily usage section
+        // Actualizar sección de uso diario si está disponible
+        var isMax=(plan==='plan_max')||(pj&&pj.is_pioneer);
         var usageEl=$('planDailyUsage');
-        if(pj.limits){
+        if(pj&&pj.limits){
             var maxMsgs=pj.limits.messages_per_day||(isMax?-1:20);
             var usedMsgs=pj.messages_used_today||0;
             var fillPct=maxMsgs>0?Math.min((usedMsgs/maxMsgs)*100,100):0;
-            $('planMsgsUsed').textContent=usedMsgs;
-            $('planMsgsMax').textContent=maxMsgs===-1?'∞':maxMsgs;
-            $('planMsgsFill').style.width=fillPct+'%';
-            $('planMsgsFill').className='du-fill'+(fillPct>90?' danger':fillPct>70?' warn':'');
+            var msgsMaxEl=$('planMsgsMax');
+            if(msgsMaxEl)msgsMaxEl.textContent=maxMsgs===-1?'∞':maxMsgs;
+            var msgsUsedEl=$('planMsgsUsed');
+            if(msgsUsedEl)msgsUsedEl.textContent=usedMsgs;
+            var msgsFillEl=$('planMsgsFill');
+            if(msgsFillEl){
+                msgsFillEl.style.width=fillPct+'%';
+                msgsFillEl.className='du-fill'+(fillPct>90?' danger':fillPct>70?' warn':'');
+            }
             if(usageEl)usageEl.style.display='';
+        }else if(usageEl){
+            usageEl.style.display='none';
         }
     }catch(e){}
 }

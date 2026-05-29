@@ -14,6 +14,7 @@ Hardware: GTX 1080 Ti (11GB) + i7-9700K + 32GB RAM
 """
 
 import gc
+import os
 import json
 import re
 import time
@@ -409,6 +410,13 @@ async def auth_page(request: Request):
     return HTMLResponse(get_auth_page())
 
 
+@app.get("/favicon.ico")
+async def favicon_ico():
+    """Redirige /favicon.ico al SVG."""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/static/favicon.svg")
+
+
 @app.get("/ping")
 async def ping():
     """Endpoint ultra-rapido para comprobar que el servidor esta activo (sin llamar a Ollama)."""
@@ -514,8 +522,15 @@ async def api_logout(request: Request):
 
 @app.get("/api/auth/me")
 async def api_me(user: dict = Depends(get_current_user)):
-    """Devuelve info del usuario autenticado."""
-    return {"id": user["id"], "username": user["username"], "email": user["email"]}
+    """Devuelve info del usuario autenticado, incluyendo su plan."""
+    return {
+        "id": user["id"],
+        "username": user["username"],
+        "email": user["email"],
+        "plan": user.get("plan", "free_limited"),
+        "is_admin": db.is_admin(user),
+        "pioneer_number": user.get("pioneer_number"),
+    }
 
 
 # ─── MODELOS ──────────────────────────────────────────────────────────────────
