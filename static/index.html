@@ -2559,7 +2559,12 @@ async function checkHealth(){
 async function initChat(){
     try{
         const me=await fetch('/api/auth/me');
-        if(me.ok){const mj=await me.json();if(mj.email&&mj.email.toLowerCase()==='elgatosuperpitzzero@gmail.com'){state.isAdmin=true;$('adminBtn').style.display='';$('voidBtn').style.display='';}}
+        if(me.ok){
+            const mj=await me.json();
+            // Actualizar badge del plan inmediatamente desde /api/auth/me (persiste en BD)
+            if(mj.plan){updatePlanBadge(mj.plan);}
+            if(mj.email&&mj.email.toLowerCase()==='elgatosuperpitzzero@gmail.com'){state.isAdmin=true;$('adminBtn').style.display='';$('voidBtn').style.display='';}
+        }
         // Cargar el modelo activo inmediatamente desde /health
         try{const hr=await fetch('/health');const hd=await hr.json();if(hd.model){state.currentModel=hd.model;setActiveModelBtn(hd.model);sT2.textContent=getModelDisplayName(hd.model||'')||hd.model;}}catch(e){}
         const r=await fetch('/api/chats');const d=await r.json();const chats=d.chats||[];
@@ -2576,6 +2581,8 @@ async function initChat(){
             renderChatList([dc.chat||dc]);
         }
     }catch(e){toastMsg('Error iniciando','err');console.error(e);}
+    // Cargar plan del usuario para actualizar el badge inmediatamente (fuera del try/catch)
+    loadPlanData().catch(function(e){});
 }
 
 // ── PANEL ADMIN ──
@@ -2584,7 +2591,7 @@ function openAdmin(){$('adminModal').classList.add('open');loadAdminTab(adminCur
 function closeAdmin(){$('adminModal').classList.remove('open');}
 function adminTab(tab){
     adminCurrentTab=tab;
-    const tabs=['stats','users','chats','models'];
+    const tabs=['stats','users','chats','models','codes'];
     document.querySelectorAll('.atab').forEach((el,i)=>el.classList.toggle('active',tabs[i]===tab));
     document.querySelectorAll('.admin-section').forEach(el=>el.classList.remove('active'));
     $('asec-'+tab).classList.add('active');
@@ -2595,6 +2602,7 @@ async function loadAdminTab(tab){
     else if(tab==='users')await loadAdminUsers();
     else if(tab==='chats')await loadAdminChats();
     else if(tab==='models')await loadAdminModels();
+    else if(tab==='codes')await loadCodes();
 }
 async function loadAdminStats(){
     const el=$('adminStats');el.innerHTML='<div class="admin-loading">Cargando...</div>';
@@ -2751,6 +2759,8 @@ async function activateCode(){
 function updatePlanBadge(plan){
     var badge=$('planBtn');
     if(!badge)return;
+    // Limpiar estilos inline primero
+    badge.style.cssText='';
     if(plan==='plan_max'||plan==='plan_max_pioneer'){
         badge.className='plan-badge max';
         badge.innerHTML='⭐ MAX';
