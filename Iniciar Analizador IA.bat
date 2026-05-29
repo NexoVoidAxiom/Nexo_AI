@@ -34,6 +34,11 @@ echo -------------------------------------------
 echo [N] TUNEL NGROK FIJO   ^<-- URL PERMANENTE GRATIS^>
 echo     %NGROK_DOMAIN%
 echo -------------------------------------------
+echo -------------------------------------------
+echo [E] ESCANEAR sistema Void Axiom
+echo [K] DESCARGAR PDFs a knowledge base
+echo [S] ESTUDIAR PDFs (generar Q^&A con IA)
+echo -------------------------------------------
 echo [7] CERRAR SERVIDOR WEB
 echo [8] CERRAR TUNEL
 echo [9] CERRAR TODO
