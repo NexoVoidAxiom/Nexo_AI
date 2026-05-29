@@ -80,12 +80,14 @@ Esto evita cargar modelos pesados para mensajes que no lo necesitan, ahorrando V
 
 ### Modelos Nexo (seleccionables por usuario)
 
-| ID interno | Nombre en UI | Modelo Ollama | VRAM aprox. | Ideal para |
-|------------|--------------|---------------|-------------|------------|
-| `nexo_lite` | Nexo Lite 1.0 | `qwen2.5-coder:3b` | ~2 GB | Tareas simples y rápidas |
-| `nexo_coder` | Nexo Coder 1.0 | `qwen2.5-coder:7b-instruct` | ~4.5 GB | ★ Balance velocidad/calidad |
-| `nexo_pro` | Nexo Pro 1.0 | `qwen2.5-coder:14b` | ~8.5 GB | Razonamiento profundo |
-| *(próximo)* | Nexo Ultra | `qwen2.5-coder:32b` | ~19+ GB | Máxima calidad *(requiere más VRAM)* |
+| Nombre en UI | Modelo Ollama | VRAM aprox. | Ideal para |
+|--------------|---------------|-------------|------------|
+| Nexo Lite 1.0 | `qwen2.5-coder:3b` | ~2 GB | Tareas simples y rápidas |
+| Nexo Coder 1.0 | `qwen2.5-coder:7b-instruct` | ~4.5 GB | ★ Balance velocidad/calidad |
+| Nexo Pro 1.0 | `qwen2.5-coder:14b` | ~8.5 GB | Razonamiento profundo |
+| Nexo Ultra *(próximo)* | `qwen2.5-coder:32b` | ~19+ GB | Máxima calidad *(requiere más VRAM)* |
+
+> El selector de modelos muestra únicamente el nombre del modelo (ej. «Nexo Lite 1.0»), sin etiquetas de parámetros ni nombres internos de Ollama.
 
 ---
 
@@ -281,7 +283,7 @@ Nexo_AI/
 │   └── train_night_cron.sh      ←   Cron de entrenamiento nocturno automatizado
 │
 ├── static/                      ← Frontend
-│   ├── index.html               ←   Chat principal (responsive, dropdown de modelos)
+│   ├── index.html               ←   Chat principal (responsive, selector de modelos limpio sin tags)
 │   ├── void_axiom.html          ←   Panel de Void Axiom en tiempo real
 │   ├── generador.html           ←   Generador de código multi-fase
 │   └── auth.html                ←   Pantalla de login/registro

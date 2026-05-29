@@ -2467,7 +2467,7 @@
         <button class="model-selector-btn" id="modelSelectorBtn" onclick="toggleModelDropdown()" aria-haspopup="listbox" aria-expanded="false">
           <span class="msb-dot" id="msbDot"></span>
           <span class="msb-name" id="msbName">Nexo Lite 1.0</span>
-          <span class="msb-tag" id="msbTag">3B</span>
+          <span class="msb-tag" id="msbTag" style="display:none">3B</span>
           <svg class="msb-chevron" viewBox="0 0 10 6" width="10" height="6" fill="none">
             <path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
           </svg>
@@ -2530,7 +2530,7 @@
         <button class="model-btn" id="mbtn-32b"></button>
       </div>
       <div class="toggle" style="display:none"><span>Ctx</span><input type="checkbox" id="ctxToggle"></div>
-      <div class="badge"><span class="dot" id="statusDot"></span><span id="statusText">Conectando...</span></div>
+      <div class="badge" style="display:none"><span class="dot" id="statusDot"></span><span id="statusText">Conectando...</span></div>
       <a href="/generador" target="_blank" class="btn" style="text-decoration:none;background:rgba(0,229,160,0.08);border-color:rgba(0,229,160,0.3);color:var(--green)">🖥️ Generador</a>
       <button class="btn" onclick="clearAll()">Limpiar</button>
       <button class="btn btn-admin" id="adminBtn" style="display:none" onclick="openAdmin()">⚡ Admin</button>
@@ -2751,16 +2751,26 @@ function pickModel(modelId,displayName,tag){
 function updateDropdownSelection(modelId){
     // Quitar active de todos
     document.querySelectorAll('.md-item:not(.unavailable)').forEach(el=>el.classList.remove('active'));
-    // Actualizar botón principal
-    const meta=MODEL_DROPDOWN_META[modelId];
+    // Buscar meta: primero exacto, luego matching parcial
+    var meta=MODEL_DROPDOWN_META[modelId];
+    if(!meta){
+        for(var k in MODEL_DROPDOWN_META){
+            if(modelId&&(modelId.startsWith(k)||k.startsWith(modelId.split(':')[0]))){
+                meta=MODEL_DROPDOWN_META[k];break;
+            }
+        }
+    }
     if(meta){
         const item=$(meta.item);
         if(item) item.classList.add('active');
         $('msbName').textContent=meta.name;
         $('msbTag').textContent=meta.tag;
     } else {
-        $('msbName').textContent=getModelDisplayName(modelId);
-        $('msbTag').textContent='';
+        // Fallback: activar Nexo Lite 1.0 por defecto
+        const defaultItem=$('mditem-3b');
+        if(defaultItem) defaultItem.classList.add('active');
+        $('msbName').textContent=getModelDisplayName(modelId)||'Nexo Lite 1.0';
+        $('msbTag').textContent='3B';
     }
 }
 // Cerrar dropdown al hacer clic fuera

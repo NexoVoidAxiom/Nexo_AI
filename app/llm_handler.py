@@ -193,14 +193,6 @@ class OllamaHandler:
                             if "response" in data:
                                 yield data["response"]
                             if data.get("done", False):
-                                # Mostrar velocidad de generacion
-                                metrics = {
-                                    "eval_count": data.get("eval_count", 0),
-                                    "eval_duration_ns": data.get("eval_duration", 0),
-                                }
-                                if metrics["eval_count"] > 0:
-                                    speed = metrics["eval_count"] / (metrics["eval_duration_ns"] / 1e9)
-                                    yield f"\n\n*Generado a {speed:.1f} tokens/s*"
                                 yield "\n[DONE]"
                                 break
                         except json.JSONDecodeError:
