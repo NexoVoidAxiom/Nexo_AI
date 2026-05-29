@@ -2279,22 +2279,40 @@
         <div>
           <div class="plan-section-title">Comparativa de planes</div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-            <div class="plan-card pioneer">
+            <div class="plan-card pioneer" style="border-color:rgba(255,170,0,0.5)">
               <h3><span class="plan-hero gold">MAX</span> ⭐</h3>
               <div class="plan-limits-grid">
-                <div class="plan-limit-item"><div class="val">∞</div><div class="lbl">Mensajes/día</div></div>
-                <div class="plan-limit-item"><div class="val">∞</div><div class="lbl">Archivos</div></div>
+                <div class="plan-limit-item"><div class="val">∞</div><div class="lbl">Mensajes</div></div>
+                <div class="plan-limit-item"><div class="val">500MB</div><div class="lbl">Archivos</div></div>
                 <div class="plan-limit-item"><div class="val">GPU</div><div class="lbl">Prioridad máx.</div></div>
-                <div class="plan-limit-item"><div class="val" style="color:var(--green)">✅</div><div class="lbl">Modelos 3B·7B·14B</div></div>
+                <div class="plan-limit-item"><div class="val" style="color:var(--green)">Sin cooldown</div><div class="lbl">Sin esperas</div></div>
+              </div>
+            </div>
+            <div class="plan-card pioneer">
+              <h3><span class="plan-hero gold">TESTER</span> 🧪</h3>
+              <div class="plan-limits-grid">
+                <div class="plan-limit-item"><div class="val">170</div><div class="lbl">Msgs / 5h</div></div>
+                <div class="plan-limit-item"><div class="val">250MB</div><div class="lbl">Archivos</div></div>
+                <div class="plan-limit-item"><div class="val" style="color:var(--green)">✅</div><div class="lbl">3B·7B·14B</div></div>
+                <div class="plan-limit-item"><div class="val" style="color:var(--text-2)">5h</div><div class="lbl">Cooldown</div></div>
               </div>
             </div>
             <div class="plan-card free-card">
               <h3><span class="plan-hero grey">FREE</span></h3>
               <div class="plan-limits-grid">
-                <div class="plan-limit-item"><div class="val" style="color:var(--text-2)">20</div><div class="lbl">Mensajes/día</div></div>
-                <div class="plan-limit-item"><div class="val" style="color:var(--text-2)">1MB</div><div class="lbl">Tamaño arch.</div></div>
+                <div class="plan-limit-item"><div class="val" style="color:var(--text-2)">40</div><div class="lbl">Msgs / 5h</div></div>
+                <div class="plan-limit-item"><div class="val" style="color:var(--text-2)">50MB</div><div class="lbl">Archivos</div></div>
                 <div class="plan-limit-item"><div class="val" style="color:var(--text-2)">Std</div><div class="lbl">Prioridad GPU</div></div>
-                <div class="plan-limit-item"><div class="val" style="color:var(--green)">✅</div><div class="lbl">Modelos 3B·7B·14B</div></div>
+                <div class="plan-limit-item"><div class="val" style="color:var(--text-2)">5h</div><div class="lbl">Cooldown</div></div>
+              </div>
+            </div>
+            <div class="plan-card" style="border-color:rgba(124,95,240,0.45);background:rgba(124,95,240,0.05)">
+              <h3><span class="plan-hero" style="color:var(--violet)">ESTUDIANTE</span> 🎓</h3>
+              <div class="plan-limits-grid">
+                <div class="plan-limit-item"><div class="val" style="color:var(--violet)">100</div><div class="lbl">Msgs / 5h</div></div>
+                <div class="plan-limit-item"><div class="val" style="color:var(--violet)">200MB</div><div class="lbl">Archivos</div></div>
+                <div class="plan-limit-item"><div class="val" style="color:var(--green)">✅</div><div class="lbl">3B·7B·14B</div></div>
+                <div class="plan-limit-item"><div class="val" style="color:var(--violet)">🔑</div><div class="lbl">Solo por código</div></div>
               </div>
             </div>
           </div>
@@ -2756,13 +2774,13 @@ document.addEventListener('keydown',function(e){
 });
 // Sobrescribir setActiveModelBtn para actualizar también el dropdown
 const _origSetActiveModelBtn=setActiveModelBtn;
-function setActiveModelBtn(name){
+setActiveModelBtn=function(name){
     _origSetActiveModelBtn(name);
     // Actualizar visual del dropdown
     const dot=$('msbDot');
     if(dot) dot.classList.remove('loading');
     updateDropdownSelection(name);
-}
+};
 
 // ── SIDEBAR / CHATS ──
 function renderChatList(chats){
@@ -3173,6 +3191,10 @@ function updatePlanBadge(plan){
         badge.className='plan-badge';
         badge.style.cssText='display:flex;align-items:center;gap:5px;padding:4px 11px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid;transition:all 0.2s;white-space:nowrap;background:rgba(0,229,160,0.08);border-color:rgba(0,229,160,0.35);color:var(--green)';
         badge.innerHTML='🧪 TESTER';
+    }else if(plan==='plan_estudiante'){
+        badge.className='plan-badge';
+        badge.style.cssText='display:flex;align-items:center;gap:5px;padding:4px 11px;border-radius:20px;font-size:11px;font-weight:700;cursor:pointer;border:1px solid;transition:all 0.2s;white-space:nowrap;background:rgba(124,95,240,0.1);border-color:rgba(124,95,240,0.4);color:var(--violet)';
+        badge.innerHTML='🎓 ESTUDIANTE';
     }else{
         badge.className='plan-badge free';
         badge.innerHTML='⭐ Free';
@@ -3188,9 +3210,11 @@ function updatePlanCard(plan, pioneerInfo){
     }else if(isMax){
         card.innerHTML='<h3>⭐ Plan MAX</h3><p style="font-size:12px;color:var(--text-2)">Gracias por tu apoyo. Disfrutas de todas las funciones premium.</p>';
     }else if(isTester){
-        card.innerHTML='<h3>🧪 Plan TESTER</h3><p style="font-size:12px;color:var(--text-2)">100 mensajes/día, archivos de 10MB. Gracias por confiar en el proyecto.</p>';
+        card.innerHTML='<h3>🧪 Plan TESTER</h3><p style="font-size:12px;color:var(--text-2)">170 mensajes cada 5h, archivos hasta 250MB. Cooldown de 5h. Gracias por confiar en el proyecto.</p>';
+    }else if(plan==='plan_estudiante'){
+        card.innerHTML='<h3>🎓 Plan Estudiante</h3><p style="font-size:12px;color:var(--text-2)">100 mensajes cada 5h · 200MB por archivo · Acceso a todos los modelos · Contexto ampliado 35k tokens. Pensado para estudiar, investigar y aprender sin límites.</p>';
     }else{
-        card.innerHTML='<h3>⭐ Plan Free</h3><p style="font-size:12px;color:var(--text-2)">Límite de 20 mensajes/día. Donar desbloquea Plan MAX o Tester.</p>';
+        card.innerHTML='<h3>⭐ Plan Free</h3><p style="font-size:12px;color:var(--text-2)">40 mensajes cada 5h, archivos hasta 50MB. Cooldown de 5h. Activa un código para mejorar tu plan.</p>';
     }
 }
 // Load pioneer info on plan open AND update header badge
@@ -3273,9 +3297,10 @@ async function loadPioneerTab(){
     var pg=$('purchaseTiersGrid');
     if(pg){
         pg.innerHTML=
-            '<div class="plan-card free-card"><h3><span class="plan-hero grey">FREE</span></h3><div class="plan-limits-grid"><div class="plan-limit-item"><div class="val" style="color:var(--text-2)">20</div><div class="lbl">Mensajes/día</div></div><div class="plan-limit-item"><div class="val" style="color:var(--text-2)">1MB</div><div class="lbl">Archivos</div></div><div class="plan-limit-item"><div class="val" style="color:var(--green)">✅</div><div class="lbl">3B·7B·14B</div></div><div class="plan-limit-item"><div class="val" style="color:var(--text-2)">€0</div><div class="lbl">Precio</div></div></div></div>'+
-            '<div class="plan-card pioneer"><h3><span class="plan-hero gold">TESTER</span> 🧪</h3><div class="plan-limits-grid"><div class="plan-limit-item"><div class="val">100</div><div class="lbl">Mensajes/día</div></div><div class="plan-limit-item"><div class="val">10MB</div><div class="lbl">Archivos</div></div><div class="plan-limit-item"><div class="val" style="color:var(--green)">✅</div><div class="lbl">3B·7B·14B</div></div><div class="plan-limit-item"><div class="val" style="color:var(--orange)">€5</div><div class="lbl">Precio</div></div></div><button class="don-tier-btn" onclick="selectPurchasePlan(\'Tester\',5)">Comprar</button></div>'+
-            '<div class="plan-card pioneer" style="border-color:rgba(255,170,0,0.5)"><h3><span class="plan-hero gold">MAX</span> ⭐</h3><div class="plan-limits-grid"><div class="plan-limit-item"><div class="val">∞</div><div class="lbl">Mensajes/día</div></div><div class="plan-limit-item"><div class="val">∞</div><div class="lbl">Archivos</div></div><div class="plan-limit-item"><div class="val" style="color:var(--green)">✅</div><div class="lbl">3B·7B·14B</div></div><div class="plan-limit-item"><div class="val" style="color:var(--orange)">€10</div><div class="lbl">Precio</div></div></div><button class="don-tier-btn" onclick="selectPurchasePlan(\'MAX\',10)">Comprar</button></div>';
+            '<div class="plan-card free-card"><h3><span class="plan-hero grey">FREE</span></h3><div class="plan-limits-grid"><div class="plan-limit-item"><div class="val" style="color:var(--text-2)">40</div><div class="lbl">Msgs / 5h</div></div><div class="plan-limit-item"><div class="val" style="color:var(--text-2)">50MB</div><div class="lbl">Archivos</div></div><div class="plan-limit-item"><div class="val" style="color:var(--text-2)">5h</div><div class="lbl">Cooldown</div></div><div class="plan-limit-item"><div class="val" style="color:var(--text-2)">€0</div><div class="lbl">Precio</div></div></div></div>'+
+            '<div class="plan-card pioneer"><h3><span class="plan-hero gold">TESTER</span> 🧪</h3><div class="plan-limits-grid"><div class="plan-limit-item"><div class="val">170</div><div class="lbl">Msgs / 5h</div></div><div class="plan-limit-item"><div class="val">250MB</div><div class="lbl">Archivos</div></div><div class="plan-limit-item"><div class="val" style="color:var(--text-2)">5h</div><div class="lbl">Cooldown</div></div><div class="plan-limit-item"><div class="val" style="color:var(--orange)">€5</div><div class="lbl">Precio</div></div></div><button class="don-tier-btn" onclick="selectPurchasePlan(\'Tester\',5)">Comprar</button></div>'+
+            '<div class="plan-card pioneer" style="border-color:rgba(255,170,0,0.5)"><h3><span class="plan-hero gold">MAX</span> ⭐</h3><div class="plan-limits-grid"><div class="plan-limit-item"><div class="val">∞</div><div class="lbl">Mensajes</div></div><div class="plan-limit-item"><div class="val">500MB</div><div class="lbl">Archivos</div></div><div class="plan-limit-item"><div class="val" style="color:var(--green)">Sin cooldown</div><div class="lbl">Sin esperas</div></div><div class="plan-limit-item"><div class="val" style="color:var(--orange)">€10</div><div class="lbl">Precio</div></div></div><button class="don-tier-btn" onclick="selectPurchasePlan(\'MAX\',10)">Comprar</button></div>'+
+            '<div class="plan-card" style="grid-column:1/-1;border-color:rgba(124,95,240,0.45);background:rgba(124,95,240,0.05)"><h3><span class="plan-hero" style="color:var(--violet)">ESTUDIANTE</span> 🎓 <span style="font-size:11px;font-weight:500;color:var(--text-2);margin-left:6px">· Solo por código</span></h3><div style="font-size:12px;color:var(--text-2);margin:6px 0 10px">Plan especial para estudiantes. No está disponible para compra — solo puede activarse con un código personal generado por el administrador.</div><div class="plan-limits-grid" style="grid-template-columns:repeat(4,1fr)"><div class="plan-limit-item"><div class="val" style="color:var(--violet)">100</div><div class="lbl">Msgs / 5h</div></div><div class="plan-limit-item"><div class="val" style="color:var(--violet)">200MB</div><div class="lbl">Archivos</div></div><div class="plan-limit-item"><div class="val" style="color:var(--text-2)">5h</div><div class="lbl">Cooldown</div></div><div class="plan-limit-item"><div class="val" style="color:var(--violet)">35k</div><div class="lbl">Contexto</div></div></div><div style="font-size:11px;color:var(--text-3);margin-top:8px">📚 Pensado para trabajos, TFGs, oposiciones y aprendizaje. Incluye acceso a todos los modelos disponibles.</div></div>';
     }
 }
 async function loadDonationsTab(){
