@@ -13,7 +13,7 @@ Flujo:
 Mapping de modelos Nexo:
   - Nexo Lite 1.0  → qwen2.5-coder:3b
   - Nexo Coder 1.0 → qwen2.5-coder:7b-instruct  
-  - Nexo Pro 1.0   → qwen2.5-coder:14b
+  - Nexo Pro 1.0   → qwen2.5-coder:14b-instruct-q4_K_M
 """
 
 from __future__ import annotations
@@ -46,8 +46,8 @@ NEXO_MODELS = {
     "nexo_pro": {
         "id": "nexo_pro",
         "display": "Nexo Pro 1.0",
-        "model": "qwen2.5-coder:14b",
-        "description": "Máxima capacidad, razonamiento profundo",
+        "model": "qwen2.5-coder:14b-instruct-q4_K_M",
+        "description": "Máxima capacidad, razonamiento profundo (Q4_K_M)",
         "vram_gb": 8.5,
     },
 }

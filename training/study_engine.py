@@ -43,12 +43,12 @@ log = logging.getLogger("study_engine")
 # ── Config ───────────────────────────────────────────────────────────────────
 KNOWLEDGE_BASE_DIR = Path(os.environ.get("KNOWLEDGE_BASE", "./knowledge_base"))
 OLLAMA_BASE_URL    = os.environ.get("VOID_OLLAMA_BASE_URL", "http://127.0.0.1:11434")
-DEFAULT_MODEL      = os.environ.get("VOID_STUDY_MODEL", "qwen2.5-coder:14b")
+DEFAULT_MODEL      = os.environ.get("VOID_STUDY_MODEL", "qwen2.5-coder:14b-instruct-q4_K_M")
 MAX_CHUNK_TOKENS   = 800
 MIN_CHUNK_TOKENS   = 40
 OVERLAP_SENTENCES  = 2
 QA_PER_CHUNK       = 3
-TIMEOUT_INFERENCE  = 300   # 5 min (GTX 1080 Ti es lenta con 14B)
+TIMEOUT_INFERENCE  = 240   # 4 min (Q4_K_M es ~30% más rápido que 14b fp16)
 TEMPERATURE        = 0.4
 MAX_RETRIES        = 3     # reintentos por inferencia fallida
 WORKERS_DEFAULT    = 2     # chunks en paralelo

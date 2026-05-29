@@ -241,7 +241,7 @@ async def _buscar_web_async(query: str, max_results: int = 5) -> str:
 ALLOWED_MODELS = [
     "qwen2.5-coder:3b",
     "qwen2.5-coder:7b-instruct",
-    "qwen2.5-coder:14b",
+    "qwen2.5-coder:14b-instruct-q4_K_M",
 ]
 
 # ─── DEPENDENCIA ADMIN ────────────────────────────────────────────────────────
@@ -1400,10 +1400,10 @@ async def force_gc(user: dict = Depends(get_current_user)):
 #    variables no definidas y rutas de carpeta incorrectas, y los corrige.
 # ─────────────────────────────────────────────────────────────────────────────
 
-GENERADOR_ARCHITECT_MODEL  = "qwen2.5-coder:14b"
+GENERADOR_ARCHITECT_MODEL  = "qwen2.5-coder:14b-instruct-q4_K_M"
 GENERADOR_AGENT_A_MODEL    = "qwen2.5-coder:7b"   # Implementador
 GENERADOR_AGENT_B_MODEL    = "qwen2.5-coder:7b"   # Crítico / Enriquecedor
-GENERADOR_REVIEWER_MODEL   = "qwen2.5-coder:14b"
+GENERADOR_REVIEWER_MODEL   = "qwen2.5-coder:14b-instruct-q4_K_M"
 
 
 class GeneradorRequest(BaseModel):
