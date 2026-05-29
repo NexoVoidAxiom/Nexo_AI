@@ -35,7 +35,7 @@ Uso:
 """
 
 import os, re, json, time, random, sqlite3, hashlib, logging, argparse, subprocess, sys
-import urllib.request, urllib.parse, urllib.error
+import urllib.parse, urllib.error
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime, timedelta

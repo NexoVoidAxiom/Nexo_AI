@@ -292,12 +292,12 @@ class VoidChannelHistory:
         """
         Añade un mensaje al historial y devuelve el dict completo del mensaje.
         Usado por AgentSession.add_message() en agent_chat.py.
+        Delega en push() para evitar duplicar la lógica de conteo de tokens.
         """
         role = "assistant" if agent_id not in ("user", "SYSTEM") else "user"
-        entry = HistoryEntry(role=role, content=content, agent_id=agent_id)
-        self._entries.append(entry)
-        self._total_tokens += entry.tokens
-        self._enforce_limits()
+        self.push(role, content, agent_id=agent_id)
+        # El timestamp lo leemos de la entrada que acaba de insertar push()
+        entry = self._entries[-1]
         msg: dict = {
             "agent_id":  agent_id,
             "content":   content,
@@ -398,11 +398,16 @@ class VoidChannelHistory:
 
     @messages.setter
     def messages(self, value: list[dict]) -> None:
-        """Reemplaza el historial completo desde una lista de dicts."""
+        """Reemplaza el historial completo desde una lista de dicts.
+        Preserva agent_id, type y timestamp si están presentes en cada mensaje.
+        """
         self._entries.clear()
         self._total_tokens = 0
         for msg in value:
-            self.push(msg.get("role", "user"), msg.get("content", ""))
+            role    = msg.get("role", "user")
+            content = msg.get("content", "")
+            agent_id = msg.get("agent_id")
+            self.push(role, content, agent_id=agent_id)
 
     def recent_messages(self, n: int = 8) -> list[dict]:
         """Últimos N mensajes como dicts (para detección de eco)."""

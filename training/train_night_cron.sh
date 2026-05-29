@@ -146,11 +146,12 @@ fi
 if [ "$SKIP_STUDY" -eq 0 ]; then
     print_step "FASE 2: Generando Q&A con Study Engine"
 
+    # Definir OLLAMA_BASE_URL antes de usarla en el curl
+    OLLAMA_BASE_URL="${VOID_OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
+
     # Solo ejecutar si Ollama está corriendo
     if curl -sf "$OLLAMA_BASE_URL/api/tags" > /dev/null 2>&1 || \
        curl -sf "http://127.0.0.1:11434/api/tags" > /dev/null 2>&1; then
-
-        OLLAMA_BASE_URL="${VOID_OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
         $PYTHON "$PROJECT_DIR/training/study_engine.py" \
             --source "$KNOWLEDGE_BASE" \
             --model "$STUDY_MODEL" \

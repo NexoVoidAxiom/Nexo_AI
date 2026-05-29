@@ -1257,9 +1257,11 @@ async def chat_stream(
         _num_ctx = _plan_limits.get("context_tokens", 25000)
         
         # Si los archivos superan el contexto disponible, truncar para que quepan
+        # IMPORTANTE: usar final_prompt (ya enriquecido con resultados web) para
+        # calcular el espacio disponible, no el prompt original del usuario.
         if final_context:
             _file_tokens_est = estimate_tokens(final_context)
-            _available_for_files = _num_ctx - estimate_tokens(prompt) - 2000  # margen para system prompt
+            _available_for_files = _num_ctx - estimate_tokens(final_prompt) - 2000  # margen para system prompt
             if _file_tokens_est > _available_for_files:
                 from app.data_processor import truncate_to_token_limit as _ttl
                 final_context, _ = _ttl(final_context, max(1000, _available_for_files))
@@ -1841,9 +1843,6 @@ async def _ollama_generate(
         raise
     except Exception as e:
         raise HTTPException(503, f"Ollama no disponible: {e}")
-    if resp.status_code != 200:
-        raise HTTPException(502, f"Error Ollama {resp.status_code}: {resp.text[:300]}")
-    return resp.json().get("response", "").strip()
 
 
 def _extract_json(raw: str) -> dict | None:
@@ -2749,12 +2748,11 @@ async def void_history(user: dict = Depends(get_current_user)):
 async def void_export(admin: dict = Depends(get_admin_user)):
     return {
         "exported_at": _now_iso(),
-        "session_id": void_session.session_id,
-        "task": void_session.task,
-        "is_active": void_session.is_active,
-        "is_paused": void_session.is_paused,
-        "rolling_summary": void_session.rolling_summary,
-        "messages": void_session.message_history,
+        "session_id":  void_session.session_id,
+        "task":        void_session.task,
+        "is_active":   void_session.is_active,
+        "is_paused":   void_session.is_paused,
+        "messages":    void_session.message_history,
     }
 
 

@@ -75,7 +75,6 @@ class AgentSession:
         self._client: Optional[OllamaChatClient] = None
         self._generation_lock = asyncio.Lock()
 
-        self.rolling_summary = ""
         self.context_message_limit = DEFAULT_CONTEXT_MESSAGES
         self.context_line_chars = DEFAULT_CONTEXT_LINE_CHARS
         self.intruder_probability = INTRUDER_PROBABILITY
@@ -193,7 +192,6 @@ class AgentSession:
         self.is_active = True
         self.is_paused = False
         self.memory.reset()
-        self.rolling_summary = ""
         self._last_generated = {key: [] for key in ALL_AGENTS}
         self._public_turns_since_intruder = 8
         self._aerys_turns_since_intruder = 4

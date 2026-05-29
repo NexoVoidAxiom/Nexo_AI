@@ -196,19 +196,21 @@ def chunk_text(
     chunk_id = 0
     in_code_block = False
 
-    def flush():
+    def flush() -> list[dict]:
+        """Vacia el buffer actual y devuelve los chunks listos (lista, no generador)."""
         nonlocal chunk_id, current_chunks, current_tokens
+        results: list[dict] = []
         body = "\n\n".join(current_chunks)
         tok  = count_tokens(body)
         if tok >= MIN_TOKENS_PER_CHUNK:
             score = quality_score(body)
-            yield {
+            results.append({
                 "text":     body,
                 "tokens":   tok,
                 "source":   source,
                 "chunk_id": chunk_id,
                 "quality":  score,
-            }
+            })
             chunk_id += 1
         # Overlap: mantener últimos párrafos hasta OVERLAP_TOKENS
         kept, kept_tok = [], 0
@@ -218,8 +220,10 @@ def chunk_text(
                 break
             kept.insert(0, p)
             kept_tok += p_tok
-        current_chunks = kept
+        current_chunks.clear()
+        current_chunks.extend(kept)
         current_tokens = kept_tok
+        return results
 
     for para in paragraphs:
         para = para.strip()

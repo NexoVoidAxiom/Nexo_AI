@@ -57,6 +57,21 @@ class OllamaResult:
     suppressed: bool = False  # True si todos los reintentos fallaron
 
 
+# ── GPU Gate — singleton a nivel de módulo ────────────────────────────────────
+# Compartido entre TODAS las instancias de VoidOllamaClient.
+# Si cada sesión creara su propio Semaphore, el objetivo de serializar el
+# acceso a la GPU fallaría cuando haya múltiples sesiones activas.
+_GPU_GATE: asyncio.Semaphore | None = None
+
+
+def _get_gpu_gate() -> asyncio.Semaphore:
+    """Devuelve el semáforo global, creándolo la primera vez (lazy init)."""
+    global _GPU_GATE
+    if _GPU_GATE is None:
+        _GPU_GATE = asyncio.Semaphore(1)
+    return _GPU_GATE
+
+
 # ── Cliente principal ─────────────────────────────────────────────────────────
 
 class VoidOllamaClient:
@@ -79,8 +94,9 @@ class VoidOllamaClient:
             limits=limits,
         )
         # SEMAPHORE = 1: serializa TODAS las llamadas GPU.
-        # Elimina el cruce de hilos concurrentes que producía "49" en vez de "69".
-        self._gpu_gate = asyncio.Semaphore(1)
+        # Se usa el singleton a nivel de módulo para que múltiples instancias
+        # (múltiples sesiones) compartan el mismo gate y no se pisen entre sí.
+        self._gpu_gate = _get_gpu_gate()
         self._warned: set[tuple[str, str]] = set()
         self._model_cache: tuple[float, set[str]] = (0.0, set())
 
