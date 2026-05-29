@@ -36,6 +36,12 @@ config.yml
 Thumbs.db
 Desktop.ini
 
+*.bak
+*.db
+*_backup.py
+fixed/
+data/
+
 # --- Void Axiom local ignores ---
 cloudflare_token.txt
 config.yml
