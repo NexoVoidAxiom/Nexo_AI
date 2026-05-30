@@ -63,8 +63,9 @@ try:
 except ImportError:
     WEB_SEARCH_AVAILABLE = False
 
-# Palabras clave que indican que el usuario quiere info actual de internet
-_BUSQUEDA_KEYWORDS = [
+# Palabras clave que indican que el usuario quiere info actual de internet.
+# NORMALIZADO: sin acentos para comparar contra texto también normalizado.
+_BUSQUEDA_KEYWORDS = frozenset({
     "noticias", "noticia", "ultimas", "ultima",
     "hoy", "ahora", "actual", "actualmente", "reciente", "recientes",
     "precio", "precios", "tiempo", "clima", "temperatura",
@@ -72,13 +73,19 @@ _BUSQUEDA_KEYWORDS = [
     "busca", "buscar", "busca en internet", "search", "internet",
     "este ano", "este mes", "esta semana", "ayer",
     "2024", "2025", "2026",
-]
+})
+
+def _normalize_search(text: str) -> str:
+    """Quita acentos y pasa a minúsculas para comparación robusta."""
+    import unicodedata
+    nfd = unicodedata.normalize("NFD", text)
+    return nfd.encode("ascii", "ignore").decode().lower()
 
 def _necesita_busqueda(prompt: str) -> bool:
     """Detecta si el prompt necesita busqueda en internet."""
     if not WEB_SEARCH_AVAILABLE:
         return False
-    p = prompt.lower()
+    p = _normalize_search(prompt)
     return any(kw in p for kw in _BUSQUEDA_KEYWORDS)
 
 # Cache simple en memoria: { query_key: (timestamp, resultado) }
@@ -218,22 +225,21 @@ def _buscar_web_sync(query: str, max_results: int = 8) -> str:
 async def _buscar_web_async(query: str, max_results: int = 5) -> str:
     """Version async: ejecuta la búsqueda en un hilo y protege el caché con Lock."""
     cache_key = query.lower().strip()[:80]
-    now = asyncio.get_event_loop().time()
 
     # Lectura del caché (sin lock, es solo lectura de dict)
     cached = _SEARCH_CACHE.get(cache_key)
     if cached:
         ts, result = cached
-        if now - ts < _CACHE_TTL:
+        if time.time() - ts < _CACHE_TTL:
             return result + "\n[Cache: resultado reciente]"
 
     # Búsqueda en hilo para no bloquear el event loop
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     result = await loop.run_in_executor(None, _buscar_web_sync, query, max_results)
 
     # Escritura con lock para evitar race condition
     async with _SEARCH_CACHE_LOCK:
-        _SEARCH_CACHE[cache_key] = (asyncio.get_event_loop().time(), result)
+        _SEARCH_CACHE[cache_key] = (time.time(), result)
 
     return result
 
@@ -247,7 +253,7 @@ ALLOWED_MODELS = [
 # ─── DEPENDENCIA ADMIN ────────────────────────────────────────────────────────
 async def get_admin_user(user: dict = Depends(get_current_user)) -> dict:
     """Solo permite acceso al administrador (Aerys)."""
-    if not db.is_admin(user):
+    if not await db.is_admin(user):
         raise HTTPException(status_code=403, detail="Acceso denegado: solo administradores")
     return user
 
@@ -270,7 +276,7 @@ class AppState:
     def get_files(self, user_id: int, chat_id: int) -> list:
         key = (user_id, chat_id)
         if key not in self._file_cache:
-            rows = db.get_chat_files(chat_id)
+            rows = await db.get_chat_files(chat_id)
             self._file_cache[key] = [
                 {
                     "filename": r["filename"],
@@ -309,7 +315,7 @@ async def lifespan(app: FastAPI):
     async def session_cleanup():
         while True:
             await asyncio.sleep(3600)
-            db.cleanup_expired_sessions()
+            await db.cleanup_expired_sessions()
 
     task = asyncio.create_task(session_cleanup())
     yield
@@ -409,7 +415,7 @@ async def index():
 async def auth_page(request: Request):
     """Pagina de login/registro. Si ya esta autenticado, redirige al inicio."""
     token = request.cookies.get("session_token")
-    if db.get_session_user(token):
+    if await db.get_session_user(token):
         from fastapi.responses import RedirectResponse
         return RedirectResponse(url="/")
     return HTMLResponse(get_auth_page())
@@ -450,7 +456,7 @@ async def api_register(data: dict):
         raise HTTPException(status_code=400, detail="Todos los campos son obligatorios")
 
     try:
-        user = db.create_user(username, email, password)
+        user = await db.create_user(username, email, password)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -458,14 +464,14 @@ async def api_register(data: dict):
         raise HTTPException(status_code=409, detail="El nombre de usuario o email ya esta en uso")
 
     # ── Asignar plan Alpha Pionero ─────────────────────────────────────────
-    pioneer_info = db.assign_pioneer_plan(user["id"])
+    pioneer_info = await db.assign_pioneer_plan(user["id"])
     if pioneer_info["is_pioneer"]:
         welcome_msg = (
             f"Bienvenido, {username}! "
             f"Eres el Pionero #{pioneer_info['pioneer_number']} — Plan MAX activado."
         )
     else:
-        pioneer_count = db.get_pioneer_count()
+        pioneer_count = await db.get_pioneer_count()
         welcome_msg = (
             f"Bienvenido, {username}! "
             f"Los {db.PIONEER_LIMIT} cupos pioneros ya están ocupados. "
@@ -473,7 +479,7 @@ async def api_register(data: dict):
         )
 
     # Auto-login tras registro
-    token = db.create_session(user["id"])
+    token = await db.create_session(user["id"])
     response = JSONResponse({
         "status":          "ok",
         "message":         welcome_msg,
@@ -497,11 +503,11 @@ async def api_login(data: dict):
     if not username_or_email or not password:
         raise HTTPException(status_code=400, detail="Usuario y contrasena requeridos")
 
-    user = db.authenticate_user(username_or_email, password)
+    user = await db.authenticate_user(username_or_email, password)
     if not user:
         raise HTTPException(status_code=401, detail="Credenciales incorrectas")
 
-    token = db.create_session(user["id"])
+    token = await db.create_session(user["id"])
     response = JSONResponse({
         "status": "ok",
         "message": f"Bienvenido, {user['username']}!",
@@ -519,7 +525,7 @@ async def api_logout(request: Request):
     """Logout: invalida la sesion y borra la cookie."""
     token = request.cookies.get("session_token")
     if token:
-        db.delete_session(token)
+        await db.delete_session(token)
     response = JSONResponse({"status": "ok"})
     response.delete_cookie("session_token")
     return response
@@ -533,7 +539,7 @@ async def api_me(user: dict = Depends(get_current_user)):
         "username": user["username"],
         "email": user["email"],
         "plan": user.get("plan", "free_limited"),
-        "is_admin": db.is_admin(user),
+        "is_admin": await db.is_admin(user),
         "pioneer_number": user.get("pioneer_number"),
     }
 
@@ -604,14 +610,14 @@ async def list_nexo_models(user: dict = Depends(get_current_user)):
     """Lista los modelos Nexo disponibles (Lite, Coder, Pro)."""
     return {
         "models": smart_router.list_nexo_models(),
-        "current": db.get_user_selected_model(user["id"]),
+        "current": await db.get_user_selected_model(user["id"]),
     }
 
 
 @app.get("/api/nexo-models/current")
 async def get_current_nexo_model(user: dict = Depends(get_current_user)):
     """Devuelve el modelo Nexo actualmente seleccionado por el usuario."""
-    model_id = db.get_user_selected_model(user["id"])
+    model_id = await db.get_user_selected_model(user["id"])
     model_info = smart_router.get_nexo_model_info(model_id)
     return {
         "model_id": model_id,
@@ -634,7 +640,7 @@ async def switch_nexo_model(data: dict, user: dict = Depends(get_current_user)):
             detail=f"Modelo no válido. Opciones: {', '.join(sorted(valid_ids))}",
         )
     
-    if not db.set_user_selected_model(user["id"], model_id):
+    if not await db.set_user_selected_model(user["id"], model_id):
         raise HTTPException(status_code=500, detail="Error al guardar la selección")
     
     model_info = smart_router.get_nexo_model_info(model_id)
@@ -651,7 +657,7 @@ async def switch_nexo_model(data: dict, user: dict = Depends(get_current_user)):
 @app.get("/api/admin/stats")
 async def admin_stats(admin: dict = Depends(get_admin_user)):
     """Estadísticas globales del sistema."""
-    stats = db.get_global_stats()
+    stats = await db.get_global_stats()
     stats["current_model"] = app_state.llm.model
     stats["allowed_models"] = ALLOWED_MODELS
     return stats
@@ -660,7 +666,7 @@ async def admin_stats(admin: dict = Depends(get_admin_user)):
 @app.get("/api/admin/users")
 async def admin_list_users(admin: dict = Depends(get_admin_user)):
     """Lista todos los usuarios registrados."""
-    return {"users": db.get_all_users()}
+    return {"users": await db.get_all_users()}
 
 
 @app.delete("/api/admin/users/{user_id}")
@@ -668,7 +674,7 @@ async def admin_delete_user(user_id: int, admin: dict = Depends(get_admin_user))
     """Elimina un usuario y todos sus datos."""
     if user_id == admin["id"]:
         raise HTTPException(status_code=400, detail="No puedes eliminarte a ti mismo")
-    if not db.delete_user_admin(user_id):
+    if not await db.delete_user_admin(user_id):
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     return {"status": "ok", "message": f"Usuario {user_id} eliminado"}
 
@@ -676,20 +682,20 @@ async def admin_delete_user(user_id: int, admin: dict = Depends(get_admin_user))
 @app.post("/api/admin/users/{user_id}/logout")
 async def admin_force_logout(user_id: int, admin: dict = Depends(get_admin_user)):
     """Cierra todas las sesiones de un usuario (fuerza logout)."""
-    count = db.delete_user_sessions_admin(user_id)
+    count = await db.delete_user_sessions_admin(user_id)
     return {"status": "ok", "sessions_closed": count}
 
 
 @app.get("/api/admin/chats")
 async def admin_list_chats(admin: dict = Depends(get_admin_user)):
     """Lista todos los chats de todos los usuarios."""
-    return {"chats": db.get_all_chats_admin()}
+    return {"chats": await db.get_all_chats_admin()}
 
 
 @app.delete("/api/admin/chats/{chat_id}")
 async def admin_delete_chat(chat_id: int, admin: dict = Depends(get_admin_user)):
     """Elimina cualquier chat."""
-    if not db.delete_chat_admin(chat_id):
+    if not await db.delete_chat_admin(chat_id):
         raise HTTPException(status_code=404, detail="Chat no encontrado")
     return {"status": "ok", "message": f"Chat {chat_id} eliminado"}
 
@@ -697,7 +703,7 @@ async def admin_delete_chat(chat_id: int, admin: dict = Depends(get_admin_user))
 @app.get("/api/admin/users/{user_id}/messages")
 async def admin_user_messages(user_id: int, admin: dict = Depends(get_admin_user)):
     """Ver últimos mensajes de un usuario."""
-    return {"messages": db.get_user_messages_admin(user_id)}
+    return {"messages": await db.get_user_messages_admin(user_id)}
 
 
 # ─── CÓDIGOS DE REDENCIÓN ─────────────────────────────────────────────────────
@@ -708,7 +714,7 @@ async def redeem_plan_code(data: dict, user: dict = Depends(get_current_user)):
     code = (data.get("code") or "").strip()
     if not code:
         raise HTTPException(status_code=400, detail="Introduce un código.")
-    result = db.use_redeem_code(user["id"], code)
+    result = await db.use_redeem_code(user["id"], code)
     if not result["ok"]:
         raise HTTPException(status_code=400, detail=result["error"])
     return {"status": "ok", "plan": result["plan"], "message": "¡Plan activado correctamente! 🎉"}
@@ -721,7 +727,7 @@ async def admin_create_code(data: dict, admin: dict = Depends(get_admin_user)):
     code = data.get("code") or "".join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(12))
     plan = data.get("plan", "plan_max")
     note = data.get("note", "")
-    ok = db.create_redeem_code(code, plan, note)
+    ok = await db.create_redeem_code(code, plan, note)
     if not ok:
         raise HTTPException(status_code=409, detail="Ese código ya existe.")
     return {"status": "ok", "code": code, "plan": plan}
@@ -730,7 +736,7 @@ async def admin_create_code(data: dict, admin: dict = Depends(get_admin_user)):
 @app.get("/api/admin/codes")
 async def admin_list_codes(admin: dict = Depends(get_admin_user)):
     """Admin lista todos los códigos generados."""
-    return {"codes": db.list_redeem_codes()}
+    return {"codes": await db.list_redeem_codes()}
 
 
 @app.delete("/api/admin/codes/{code}")
@@ -753,7 +759,7 @@ async def admin_delete_code(code: str, admin: dict = Depends(get_admin_user)):
 @app.get("/api/chats")
 async def list_chats(user: dict = Depends(get_current_user)):
     """Lista todos los chats del usuario autenticado."""
-    chats = db.get_user_chats(user["id"])
+    chats = await db.get_user_chats(user["id"])
     return {"chats": chats}
 
 
@@ -761,7 +767,7 @@ async def list_chats(user: dict = Depends(get_current_user)):
 async def new_chat(data: dict = None, user: dict = Depends(get_current_user)):
     """Crea un nuevo chat vacio."""
     title = (data or {}).get("title", "Chat nuevo")
-    chat = db.create_chat(user["id"], title)
+    chat = await db.create_chat(user["id"], title)
     return {"chat": chat}
 
 
@@ -778,19 +784,19 @@ def _resolve_chat_for_user(chat_id: int, user: dict) -> dict:
       • 403 Forbidden  si el chat existe pero pertenece a otro usuario.
       • 404 Not Found  si el chat no existe en absoluto.
     """
-    if db.is_admin(user):
+    if await db.is_admin(user):
         # El admin usa la consulta sin filtro de user_id
-        chat = db.get_chat_by_id(chat_id)
+        chat = await db.get_chat_by_id(chat_id)
         if not chat:
             raise HTTPException(status_code=404, detail="Chat no encontrado")
         return chat
 
     # Usuario normal: filtrar estrictamente por su user_id
-    chat = db.get_chat(chat_id, user["id"])
+    chat = await db.get_chat(chat_id, user["id"])
     if not chat:
         # Distinguir 404 real de un 403 (el chat existe pero es de otro)
         # para no revelar al usuario que ese chat_id sí existe en el sistema.
-        if db.get_chat_by_id(chat_id):
+        if await db.get_chat_by_id(chat_id):
             raise HTTPException(
                 status_code=403,
                 detail="Acceso denegado: este chat no te pertenece.",
@@ -810,12 +816,12 @@ async def get_chat(chat_id: int, user: dict = Depends(get_current_user)):
     """
     chat = _resolve_chat_for_user(chat_id, user)
 
-    messages     = db.get_chat_messages(chat_id)
-    files        = db.get_chat_files(chat_id)
+    messages     = await db.get_chat_messages(chat_id)
+    files        = await db.get_chat_files(chat_id)
     total_tokens = sum(f["tokens"] for f in files)
 
     # Flag para que el frontend sepa que el admin está leyendo un chat ajeno
-    is_audit = db.is_admin(user) and chat["user_id"] != user["id"]
+    is_audit = await db.is_admin(user) and chat["user_id"] != user["id"]
 
     return {
         "chat":         chat,
@@ -843,10 +849,10 @@ async def delete_chat(chat_id: int, user: dict = Depends(get_current_user)):
     """
     chat = _resolve_chat_for_user(chat_id, user)
 
-    if db.is_admin(user):
-        success = db.delete_chat_admin(chat_id)
+    if await db.is_admin(user):
+        success = await db.delete_chat_admin(chat_id)
     else:
-        success = db.delete_chat(chat_id, user["id"])
+        success = await db.delete_chat(chat_id, user["id"])
 
     if not success:
         raise HTTPException(status_code=404, detail="Chat no encontrado")
@@ -870,7 +876,7 @@ async def rename_chat(chat_id: int, data: dict, user: dict = Depends(get_current
     chat = _resolve_chat_for_user(chat_id, user)
 
     # update_chat_title filtra internamente por user_id; usamos el propietario real
-    db.update_chat_title(chat_id, chat["user_id"], title)
+    await db.update_chat_title(chat_id, chat["user_id"], title)
     return {"status": "ok"}
 
 
@@ -906,7 +912,7 @@ async def _do_upload_file(file: UploadFile, user: dict, chat_id: int = None):
             metadata["truncated"] = False
 
         if chat_id:
-            db.add_chat_file(chat_id, user["id"], file.filename, text, tokens, metadata)
+            await db.add_chat_file(chat_id, user["id"], file.filename, text, tokens, metadata)
             app_state.invalidate(user["id"], chat_id)
 
         return {
@@ -929,7 +935,7 @@ async def upload_file_to_chat(
     user: dict = Depends(get_current_user),
 ):
     """Sube un archivo vinculado a un chat especifico."""
-    chat = db.get_chat(chat_id, user["id"])
+    chat = await db.get_chat(chat_id, user["id"])
     if not chat:
         raise HTTPException(status_code=404, detail="Chat no encontrado")
     return await _do_upload_file(file, user, chat_id)
@@ -942,7 +948,7 @@ async def upload_multiple_to_chat(
     user: dict = Depends(get_current_user),
 ):
     """Sube multiples archivos a un chat."""
-    chat = db.get_chat(chat_id, user["id"])
+    chat = await db.get_chat(chat_id, user["id"])
     if not chat:
         raise HTTPException(status_code=404, detail="Chat no encontrado")
 
@@ -960,7 +966,7 @@ async def upload_multiple_to_chat(
             if tokens > max_tokens:
                 text, tokens = truncate_to_token_limit(text, max_tokens)
                 metadata["truncated"] = True
-            db.add_chat_file(chat_id, user["id"], file.filename, text, tokens, metadata)
+            await db.add_chat_file(chat_id, user["id"], file.filename, text, tokens, metadata)
             total_tokens += tokens
             results.append({"filename": file.filename, "tokens": tokens})
         except Exception:
@@ -984,7 +990,7 @@ async def upload_text_to_chat(
     user: dict = Depends(get_current_user),
 ):
     """Carga texto pegado como archivo en un chat."""
-    chat = db.get_chat(chat_id, user["id"])
+    chat = await db.get_chat(chat_id, user["id"])
     if not chat:
         raise HTTPException(status_code=404, detail="Chat no encontrado")
 
@@ -1002,14 +1008,14 @@ async def upload_text_to_chat(
         metadata["truncated"] = True
 
     # Nombre unico para el texto pegado
-    existing = db.get_chat_files(chat_id)
+    existing = await db.get_chat_files(chat_id)
     existing_names = {f["filename"] for f in existing}
     n = 1
     while f"texto_pegado_{n}.txt" in existing_names:
         n += 1
     filename = f"texto_pegado_{n}.txt"
 
-    db.add_chat_file(chat_id, user["id"], filename, text, tokens, metadata)
+    await db.add_chat_file(chat_id, user["id"], filename, text, tokens, metadata)
     app_state.invalidate(user["id"], chat_id)
 
     return {
@@ -1027,7 +1033,7 @@ async def remove_file_from_chat(
     user: dict = Depends(get_current_user),
 ):
     """Elimina un archivo especifico de un chat."""
-    chat = db.get_chat(chat_id, user["id"])
+    chat = await db.get_chat(chat_id, user["id"])
     if not chat:
         raise HTTPException(status_code=404, detail="Chat no encontrado")
 
@@ -1035,7 +1041,7 @@ async def remove_file_from_chat(
     if not filename:
         raise HTTPException(status_code=400, detail="Nombre de archivo vacio")
 
-    db.remove_chat_file(chat_id, filename)
+    await db.remove_chat_file(chat_id, filename)
     app_state.invalidate(user["id"], chat_id)
     return {"status": "ok", "message": f"Archivo '{filename}' eliminado"}
 
@@ -1046,11 +1052,11 @@ async def clear_files_from_chat(
     user: dict = Depends(get_current_user),
 ):
     """Elimina todos los archivos de un chat."""
-    chat = db.get_chat(chat_id, user["id"])
+    chat = await db.get_chat(chat_id, user["id"])
     if not chat:
         raise HTTPException(status_code=404, detail="Chat no encontrado")
 
-    db.clear_chat_files(chat_id)
+    await db.clear_chat_files(chat_id)
     app_state.invalidate(user["id"], chat_id)
     return {"status": "ok", "message": "Archivos eliminados"}
 
@@ -1058,7 +1064,7 @@ async def clear_files_from_chat(
 @app.get("/api/chats/{chat_id}/status")
 async def chat_status(chat_id: int, user: dict = Depends(get_current_user)):
     """Estado de archivos de un chat (para sincronizar la barra de tokens)."""
-    chat = db.get_chat(chat_id, user["id"])
+    chat = await db.get_chat(chat_id, user["id"])
     if not chat:
         raise HTTPException(status_code=404, detail="Chat no encontrado")
 
@@ -1079,7 +1085,7 @@ async def chat_status(chat_id: int, user: dict = Depends(get_current_user)):
 async def chat_summary(chat_id: int, user: dict = Depends(get_current_user)):
     chat = _resolve_chat_for_user(chat_id, user)
     files = app_state.get_files(chat["user_id"], chat_id)
-    messages = db.get_chat_messages(chat_id)
+    messages = await db.get_chat_messages(chat_id)
     user_msgs = [m for m in messages if m["role"] == "user"]
     assistant_msgs = [m for m in messages if m["role"] == "assistant"]
     total_tokens = sum(m.get("tokens", 0) or 0 for m in messages) + sum(f["tokens"] for f in files)
@@ -1104,7 +1110,7 @@ async def chat_summary(chat_id: int, user: dict = Depends(get_current_user)):
 async def chat_export(chat_id: int, user: dict = Depends(get_current_user)):
     chat = _resolve_chat_for_user(chat_id, user)
     files = app_state.get_files(chat["user_id"], chat_id)
-    messages = db.get_chat_messages(chat_id)
+    messages = await db.get_chat_messages(chat_id)
     return {
         "exported_at": _now_iso(),
         "chat": chat,
@@ -1165,7 +1171,7 @@ async def chat_stream(
     limpiamente, liberando la GPU de Ollama y evitando que Uvicorn
     se quede congelado.
     """
-    chat = db.get_chat(chat_id, user["id"])
+    chat = await db.get_chat(chat_id, user["id"])
     if not chat:
         raise HTTPException(status_code=404, detail="Chat no encontrado")
 
@@ -1193,10 +1199,10 @@ async def chat_stream(
 
     # Guardar mensaje del usuario en DB
     prompt_tokens = estimate_tokens(prompt)
-    db.add_message(chat_id, "user", prompt, prompt_tokens)
+    await db.add_message(chat_id, "user", prompt, prompt_tokens)
 
     # Auto-titulo con IA: si es el primer mensaje, pedir al modelo 3B que genere un título
-    messages_count = len(db.get_chat_messages(chat_id))
+    messages_count = len(await db.get_chat_messages(chat_id))
     if messages_count <= 2 and chat["title"] in ("Chat nuevo", ""):
         asyncio.create_task(_auto_title(chat_id, user["id"], prompt))
 
@@ -1234,7 +1240,7 @@ async def chat_stream(
         # Clasificar la intención del mensaje
         _intent = smart_router.classify(prompt)
         # Obtener el modelo Nexo seleccionado por el usuario
-        _nexo_model_id = db.get_user_selected_model(user["id"])
+        _nexo_model_id = await db.get_user_selected_model(user["id"])
         # Obtener la configuración del modelo a usar
         _model_config = smart_router.get_models_for_intent(_intent, _nexo_model_id)
         
@@ -1334,8 +1340,8 @@ async def chat_stream(
         complete = "".join(full_response).replace("\n[DONE]", "").strip()
         if complete:
             resp_tokens = estimate_tokens(complete)
-            db.add_message(chat_id, "assistant", complete, resp_tokens)
-            db.touch_chat(chat_id)
+            await db.add_message(chat_id, "assistant", complete, resp_tokens)
+            await db.touch_chat(chat_id)
 
     return StreamingResponse(
         stream_response(),
@@ -1355,7 +1361,7 @@ async def _auto_title(chat_id: int, user_id: int, first_message: str):
     try:
         title = await app_state.llm.generate_title(first_message)
         if title:
-            db.update_chat_title(chat_id, user_id, title)
+            await db.update_chat_title(chat_id, user_id, title)
     except Exception:
         pass  # Si falla, el chat mantiene el título por defecto
 
@@ -1596,7 +1602,7 @@ def _save_generation_record(
 
 def _find_generation_record(history_id: str, user: dict) -> dict | None:
     for row in _load_generation_history():
-        if row.get("id") == history_id and (row.get("user_id") == user["id"] or db.is_admin(user)):
+        if row.get("id") == history_id and (row.get("user_id") == user["id"] or await db.is_admin(user)):
             return row
     return None
 
@@ -1934,7 +1940,7 @@ async def api_generador_history(user: dict = Depends(get_current_user)):
     rows = [
         _history_summary(row)
         for row in _load_generation_history()
-        if row.get("user_id") == user["id"] or db.is_admin(user)
+        if row.get("user_id") == user["id"] or await db.is_admin(user)
     ]
     return {"items": rows}
 
@@ -1952,7 +1958,7 @@ async def api_generador_history_delete(history_id: str, user: dict = Depends(get
     rows = _load_generation_history()
     kept = [
         row for row in rows
-        if not (row.get("id") == history_id and (row.get("user_id") == user["id"] or db.is_admin(user)))
+        if not (row.get("id") == history_id and (row.get("user_id") == user["id"] or await db.is_admin(user)))
     ]
     if len(kept) == len(rows):
         raise HTTPException(status_code=404, detail="Generación no encontrada")
@@ -2613,10 +2619,10 @@ async def void_start(body: VoidStartRequest, admin: dict = Depends(get_admin_use
         previous_session_id = void_session.session_id
         void_session.stop()
         if previous_session_id:
-            db.update_agent_session_status(previous_session_id, "stopped")
+            await db.update_agent_session_status(previous_session_id, "stopped")
         await asyncio.sleep(0.3)
 
-    session_id = db.create_agent_session(task)
+    session_id = await db.create_agent_session(task)
     void_session.start_session(task, session_id)
 
     # Lanzar el loop de agentes como tarea de fondo
@@ -2648,7 +2654,7 @@ async def void_stop(admin: dict = Depends(get_admin_user)):
     """Detiene la sesión actual."""
     void_session.stop()
     if void_session.session_id:
-        db.update_agent_session_status(void_session.session_id, "stopped")
+        await db.update_agent_session_status(void_session.session_id, "stopped")
     return {"status": "stopped"}
 
 
@@ -2722,7 +2728,7 @@ async def void_status(user: dict = Depends(get_current_user)):
         "task": void_session.task,
         "message_count": len(void_session.message_history),
         "subscribers": len(void_session.subscribers),
-        "is_admin": db.is_admin(user),
+        "is_admin": await db.is_admin(user),
         "memory_mode": "extended_55k" if void_session._extended_context_enabled else "standard_16k",
         "activity": void_activity.snapshot(),
     }
@@ -2731,7 +2737,7 @@ async def void_status(user: dict = Depends(get_current_user)):
 @app.get("/api/void/sessions")
 async def void_sessions(admin: dict = Depends(get_admin_user)):
     """Lista histórica de sesiones A2A."""
-    return {"sessions": db.get_all_agent_sessions()}
+    return {"sessions": await db.get_all_agent_sessions()}
 
 
 @app.get("/api/void/history")

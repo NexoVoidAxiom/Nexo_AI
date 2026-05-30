@@ -160,7 +160,7 @@ def get_plan_limits(plan: str) -> dict:
 # RATE LIMITING POR PLAN (integración con el sistema existente)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def check_daily_message_limit(user_id: int, plan: str) -> tuple[bool, int, int]:
+def await check_daily_message_limit(user_id: int, plan: str) -> tuple[bool, int, int]:
     """
     Verifica si el usuario puede enviar otro mensaje hoy.
     Retorna (allowed: bool, used: int, limit: int)
@@ -214,7 +214,7 @@ async def get_current_user_optional(
     if authorization and authorization.startswith("Bearer "):
         token = authorization.replace("Bearer ", "").strip()
         if token:
-            user = get_user_by_token(token)
+            user = await get_user_by_token(token)
             if user:
                 return user
 
@@ -223,7 +223,7 @@ async def get_current_user_optional(
     if token:
         try:
             from app import database as db
-            return db.get_session_user(token)
+            return await db.get_session_user(token)
         except Exception:
             pass
 
@@ -265,7 +265,7 @@ async def get_pioneer_program_status():
     Público — sin autenticación requerida.
     """
     if DB_AVAILABLE:
-        count = get_pioneer_count()
+        count = await get_pioneer_count()
     else:
         count = 0
 
@@ -301,7 +301,7 @@ async def get_pioneers_leaderboard(limit: int = 50):
     if not DB_AVAILABLE:
         return {"pioneers": [], "total": 0}
 
-    pioneers = get_pioneer_leaderboard(limit=limit)
+    pioneers = await get_pioneer_leaderboard(limit=limit)
     # Sanitizar: devolver solo datos públicos
     public_list = [
         {
@@ -325,7 +325,7 @@ async def get_my_plan(
 ):
     """Devuelve el plan y los límites del usuario autenticado."""
     if DB_AVAILABLE:
-        plan_data = get_user_plan(user["id"])
+        plan_data = await get_user_plan(user["id"])
     else:
         plan_data = {"plan": PLAN_FREE, "pioneer_number": None, "is_pioneer": False}
 
@@ -334,7 +334,7 @@ async def get_my_plan(
 
     # Añadir uso actual del día si está en plan limitado
     if plan == PLAN_FREE:
-        allowed, used, max_msgs = check_daily_message_limit(user["id"], plan)
+        allowed, used, max_msgs = await check_daily_message_limit(user["id"], plan)
         limits = {**limits, "messages_used_today": used, "messages_remaining_today": max(0, max_msgs - used)}
 
     return UserPlanInfo(
@@ -357,12 +357,12 @@ async def can_send_message(
     Usar desde el frontend antes de cada envío en plan free.
     """
     if DB_AVAILABLE:
-        plan_data = get_user_plan(user["id"])
+        plan_data = await get_user_plan(user["id"])
         plan = plan_data.get("plan", PLAN_FREE)
     else:
         plan = PLAN_FREE
 
-    allowed, used, limit = check_daily_message_limit(user["id"], plan)
+    allowed, used, limit = await check_daily_message_limit(user["id"], plan)
     return {
         "allowed":    allowed,
         "used_today": used,
@@ -597,7 +597,7 @@ async def enforce_plan_limits(user_id: int, plan: str) -> None:
     Lanza HTTPException si el usuario ha superado su límite diario.
     Llamar desde los endpoints de chat antes de procesar el mensaje.
     """
-    allowed, used, limit = check_daily_message_limit(user_id, plan)
+    allowed, used, limit = await check_daily_message_limit(user_id, plan)
     if not allowed:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -629,7 +629,7 @@ Para integrar pioneers.py en el main.py existente:
 
 4. En el endpoint /api/chat o equivalente, añadir verificación:
    # Al inicio del handler de chat:
-   plan_data = get_user_plan(current_user["id"])
+   plan_data = await get_user_plan(current_user["id"])
    await enforce_plan_limits(current_user["id"], plan_data["plan"])
 
 5. En app/database.py asegurarse de que existe PIONEER_LIMIT = 50

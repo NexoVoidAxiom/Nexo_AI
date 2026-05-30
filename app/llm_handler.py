@@ -12,7 +12,6 @@ OPTIMIZACIONES:
 - System prompts desde config
 """
 import json
-import gc
 import httpx
 from typing import AsyncGenerator, Optional
 from app.config import (
@@ -207,10 +206,9 @@ class OllamaHandler:
             yield f"\n\n**Error**: {str(e)}\n[DONE]"
 
         finally:
-            # ─── GC POST-INFERENCIA ─────────────────────────────────────
-            # Se ejecuta UNA sola vez al acabar (no tras cada token)
+            # Liberar las referencias locales grandes — Python recuperará la memoria
+            # en el siguiente ciclo del GC sin necesidad de forzarlo.
             del full_prompt, payload
-            gc.collect()
 
     async def generate(
         self,
@@ -228,9 +226,8 @@ class OllamaHandler:
         return "".join(result)
 
     async def close(self):
-        """Cierra sesion HTTP y fuerza GC."""
+        """Cierra sesion HTTP."""
         await self.client.aclose()
-        gc.collect()
 
     async def generate_title(self, first_message: str) -> str:
         """Genera un titulo corto para un chat usando el modelo 3B.

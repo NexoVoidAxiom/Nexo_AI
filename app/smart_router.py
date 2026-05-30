@@ -19,10 +19,22 @@ Mapping de modelos Nexo:
 from __future__ import annotations
 
 import re
+import unicodedata
 import logging
 from enum import Enum, auto
 
 logger = logging.getLogger("smart_router")
+
+
+def _normalize(text: str) -> str:
+    """Elimina acentos, convierte a minúsculas y colapsa espacios.
+
+    'código' → 'codigo', 'Análisis' → 'analisis'.
+    Evita falsos negativos por tildes o variaciones de encoding.
+    """
+    nfd = unicodedata.normalize("NFD", text)
+    ascii_text = nfd.encode("ascii", "ignore").decode()
+    return re.sub(r"\s+", " ", ascii_text.lower()).strip()
 
 # ─── Modelos disponibles ──────────────────────────────────────────────────
 
@@ -63,26 +75,26 @@ DEFAULT_HEAVY_MODEL = "nexo_coder"  # Modelo pesado por defecto
 _WORK_KEYWORDS = frozenset({
     # Código / programación
     "python", "javascript", "typescript", "rust", "go", "java", "c++", "cpp",
-    "código", "codigo", "code", "script", "función", "funcion", "function",
-    "clase", "class", "método", "metodo", "implementa", "implement",
+    "codigo", "code", "script", "funcion", "function",
+    "clase", "class", "metodo", "implementa", "implement",
     "escribe", "write", "crea", "create", "refactoriza", "refactor",
     "optimiza", "optimize", "arregla", "fix", "debug", "bug", "error",
     "import", "api", "endpoint", "router", "async", "await",
     "algoritmo", "algorithm", "estructura", "pipeline", "docker",
     "test", "pytest", "mock", "sql", "query", "database", "select",
     "html", "css", "react", "vue", "fastapi", "django", "flask",
-    "git", "deploy", "compila", "compila", "ejecuta", "run",
+    "git", "deploy", "compila", "ejecuta", "run",
     # Análisis / razonamiento
     "analiza", "analyze", "compara", "compare", "explica", "explain",
-    "arquitectura", "architecture", "diseña", "design", "diagrama",
-    "optimización", "optimization", "rendimiento", "performance",
+    "arquitectura", "architecture", "disena", "design", "diagrama",
+    "optimizacion", "optimization", "rendimiento", "performance",
     "investiga", "investigate", "resuelve", "solve", "calcula", "calculate",
-    "paso a paso", "step by step", "en detalle", "in detail",
-    "demuestra", "prove", "teorema", "theorem", "ecuación", "equation",
+    "paso", "step", "detalle", "detail",
+    "demuestra", "prove", "teorema", "theorem", "ecuacion", "equation",
     # Datos
     "dataframe", "csv", "pandas", "numpy", "matplotlib", "grafica",
-    "análisis", "analisis", "analysis", "visualización", "visualization",
-    "estadística", "estadistica", "statistics", "machine learning",
+    "analisis", "analysis", "visualizacion", "visualization",
+    "estadistica", "statistics", "machine", "learning",
     # Archivos / contexto
     "archivo", "file", "subido", "upload", "documento", "document",
     "contexto", "context", "texto", "text",
@@ -90,23 +102,22 @@ _WORK_KEYWORDS = frozenset({
 
 # Palabras clave que INDICAN claramente charla casual
 _CHAT_KEYWORDS = frozenset({
-    "hola", "hello", "hey", "buenas", "buenos días", "buenas tardes",
-    "gracias", "thanks", "ok", "vale", "de nada", "you're welcome",
-    "cómo estás", "como estas", "how are you", "bien", "bien y tú",
-    "qué tal", "que tal", "what's up", "todo bien",
-    "adiós", "adios", "bye", "hasta luego", "nos vemos",
-    "quién eres", "quien eres", "who are you", "qué eres", "que eres",
-    "quién te creó", "quien te creo", "who created you",
-    "qué puedes hacer", "que puedes hacer", "what can you do",
+    "hola", "hello", "hey", "buenas", "buenos", "dias", "tardes",
+    "gracias", "thanks", "ok", "vale", "nada", "welcome",
+    "como", "estas", "how", "are", "you", "bien", "tu",
+    "que", "tal", "what", "up", "todo",
+    "adios", "bye", "hasta", "luego", "nos", "vemos",
+    "quien", "eres", "who", "created",
+    "puedes", "hacer", "can", "do",
 })
 
 # Patrones que indican claramente que es charla (no trabajo)
 _CHAT_PATTERNS = [
     re.compile(r"^(hola|hey|buenas|oye|ey)\b", re.IGNORECASE),
     re.compile(r"\b(gracias|thanks|ok|vale)\s*$", re.IGNORECASE),
-    re.compile(r"^cómo est[áa]s", re.IGNORECASE),
-    re.compile(r"^qu[ée] (eres|puedes|sabes|haces)", re.IGNORECASE),
-    re.compile(r"^qui[ée]n (eres|te|creo)", re.IGNORECASE),
+    re.compile(r"^como est", re.IGNORECASE),
+    re.compile(r"^qu[e] (eres|puedes|sabes|haces)", re.IGNORECASE),
+    re.compile(r"^qui[e]n (eres|te|creo)", re.IGNORECASE),
 ]
 
 # Patrones que INDICAN claramente que es trabajo
@@ -144,46 +155,53 @@ class SmartRouter:
     def classify(self, text: str) -> WorkIntent:
         """
         Clasifica el texto como CHAT (charla casual) o WORK (tarea real).
-        
+
+        Orden de evaluación:
+          1. Patrones estructurales de código → WORK inmediato
+          2. Keywords de trabajo (sin acentos, normalizado) → WORK
+          3. Patrones de charla + longitud del mensaje → CHAT o WORK
+          4. Heurística de longitud + chat_hits → CHAT
+          5. Default seguro → WORK
+
         Returns:
             WorkIntent.CHAT si es charla pura sin trabajo
             WorkIntent.WORK si hay cualquier señal de trabajo o duda
         """
-        text_lower = text.lower().strip()
-        
-        # 1. Detectar patrones de código → WORK forzoso
+        # Normalizar: quitar acentos + minúsculas para comparación robusta
+        text_norm = _normalize(text)
+
+        # 1. Detectar patrones de código (sobre texto original, son regexes estructurales)
         for pattern in _WORK_PATTERNS:
             if pattern.search(text):
                 logger.debug("WORK detectado por patrón estructural: %s", pattern.pattern)
                 return WorkIntent.WORK
-        
-        # 2. Detectar palabras clave de trabajo
-        tokens = set(re.findall(r"[\w'áéíóúüñÁÉÍÓÚÜÑ]+", text_lower))
+
+        # 2. Detectar palabras clave de trabajo (tokenizando el texto normalizado)
+        tokens = set(re.findall(r"[\w']+", text_norm))
         work_hits = tokens & _WORK_KEYWORDS
         chat_hits = tokens & _CHAT_KEYWORDS
-        
+
         if work_hits:
             logger.debug("WORK detectado por keywords: %s", work_hits)
             return WorkIntent.WORK
-        
-        # 3. Detectar patrones de charla
+
+        # 3. Detectar patrones de charla (sobre texto normalizado)
         for pattern in _CHAT_PATTERNS:
-            if pattern.search(text):
-                # Es charla, PERO verificar si también tiene contexto de trabajo
-                # (por ejemplo: "hola, analiza este archivo" → WORK)
+            if pattern.search(text_norm):
+                # "hola, analiza este archivo" → tiene patrón chat PERO es largo → WORK
                 if len(text.split()) > 8:
-                    logger.debug("Patrón de charla detectado pero hay suficiente texto -> WORK")
+                    logger.debug("Patrón de charla detectado pero mensaje largo -> WORK")
                     return WorkIntent.WORK
                 logger.debug("CHAT detectado por patrón: %s", pattern.pattern)
                 return WorkIntent.CHAT
-        
-        # 4. Heurística: mensajes muy cortos (1-4 palabras) sin señales claras
+
+        # 4. Heurística: mensajes cortos (1-4 palabras) con palabras de charla → CHAT
         word_count = len(text.split())
         if word_count <= 4 and chat_hits:
             logger.debug("CHAT: mensaje corto con palabras de charla")
             return WorkIntent.CHAT
-        
-        # 5. En duda o texto largo → WORK (mejor prevenir)
+
+        # 5. En duda o texto largo → WORK (mejor pecar de usar el modelo potente)
         logger.debug("DUDA resuelta como WORK (default seguro)")
         return WorkIntent.WORK
 

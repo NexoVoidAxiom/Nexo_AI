@@ -49,13 +49,13 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # ── Vía 1: cookie de sesión (navegador web) ──────────────────────
         token = request.cookies.get("session_token")
-        user  = db.get_session_user(token) if token else None
+        user  = await db.get_session_user(token) if token else None
 
         # ── Vía 2: API key (scripts, curl, integraciones) ────────────────
         if not user:
             api_key = request.headers.get("X-API-Key", "").strip()
             if api_key:
-                user = db.get_user_by_api_key(api_key)
+                user = await db.get_user_by_api_key(api_key)
 
         if user:
             request.state.user = user
@@ -89,14 +89,14 @@ async def get_current_user(request: Request) -> dict:
     # Fallback: leer cookie directamente
     token = request.cookies.get("session_token")
     if token:
-        user = db.get_session_user(token)
+        user = await db.get_session_user(token)
         if user:
             return user
 
     # Fallback: API Key
     api_key = request.headers.get("X-API-Key", "").strip()
     if api_key:
-        user = db.get_user_by_api_key(api_key)
+        user = await db.get_user_by_api_key(api_key)
         if user:
             return user
 
