@@ -225,6 +225,69 @@ class OllamaHandler:
             result.append(chunk)
         return "".join(result)
 
+    async def describe_image(
+        self,
+        image_b64: str,
+        prompt: str = (
+            "Analiza esta imagen en detalle en español. Describe qué ves: "
+            "objetos, personas, colores, formas, texto visible, composición general "
+            "y cualquier información relevante para comprenderla."
+        ),
+        mime_type: str = "image/png",
+    ) -> str:
+        """Envía una imagen en base64 a Ollama para descripción visual.
+
+        Funciona con modelos de visión (llava, moondream, qwen2-vl, bakllava).
+        Si el modelo activo no soporta visión, intenta con llava o moondream
+        como fallback si están disponibles en Ollama.
+        """
+        # Modelos de visión conocidos para priorizar como fallback
+        VISION_MODELS = ["llava", "moondream", "bakllava", "llava-phi3",
+                         "minicpm-v", "qwen2-vl", "llava-llama3", "cogvlm"]
+
+        async def _call_vision(model: str, b64: str, q: str) -> str:
+            payload = {
+                "model": model,
+                "prompt": q,
+                "images": [b64],
+                "stream": False,
+                "options": {"num_predict": 600, "temperature": 0.3, "num_thread": 4},
+            }
+            resp = await self.client.post(
+                f"{self.base_url}/api/generate", json=payload, timeout=90.0
+            )
+            if resp.status_code == 200:
+                return resp.json().get("response", "").strip()
+            return ""
+
+        # 1. Intentar con el modelo activo
+        try:
+            result = await _call_vision(self.model, image_b64, prompt)
+            if result and not any(err in result.lower() for err in
+                                  ("not support", "cannot process", "no puedo ver",
+                                   "no puedo acceder", "no tengo acceso")):
+                return result
+        except Exception:
+            pass
+
+        # 2. Buscar un modelo de visión disponible en Ollama
+        try:
+            available = await self.list_models()
+            available_names = [m.get("name", "") for m in available]
+            for vision_model in VISION_MODELS:
+                matched = next((n for n in available_names if vision_model in n.lower()), None)
+                if matched:
+                    try:
+                        result = await _call_vision(matched, image_b64, prompt)
+                        if result:
+                            return f"[Analizado con {matched}]\n{result}"
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+        return ""  # Sin descripción disponible
+
     async def close(self):
         """Cierra sesion HTTP."""
         await self.client.aclose()

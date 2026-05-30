@@ -273,7 +273,7 @@ class AppState:
         # Cache: key=(user_id, chat_id) → list of file dicts
         self._file_cache: dict[tuple, list] = {}
 
-    def get_files(self, user_id: int, chat_id: int) -> list:
+    async def get_files(self, user_id: int, chat_id: int) -> list:
         key = (user_id, chat_id)
         if key not in self._file_cache:
             rows = await db.get_chat_files(chat_id)
@@ -291,8 +291,8 @@ class AppState:
     def invalidate(self, user_id: int, chat_id: int):
         self._file_cache.pop((user_id, chat_id), None)
 
-    def total_tokens(self, user_id: int, chat_id: int) -> int:
-        return sum(f["tokens"] for f in self.get_files(user_id, chat_id))
+    async def total_tokens(self, user_id: int, chat_id: int) -> int:
+        return sum(f["tokens"] for f in await self.get_files(user_id, chat_id))
 
 
 app_state = AppState()
@@ -773,7 +773,7 @@ async def new_chat(data: dict = None, user: dict = Depends(get_current_user)):
 
 # ─── HELPER DE PERMISOS ───────────────────────────────────────────────────────
 
-def _resolve_chat_for_user(chat_id: int, user: dict) -> dict:
+async def _resolve_chat_for_user(chat_id: int, user: dict) -> dict:
     """Devuelve el chat si el usuario tiene permiso para acceder a él.
 
     Lógica de permisos:
@@ -814,7 +814,7 @@ async def get_chat(chat_id: int, user: dict = Depends(get_current_user)):
       • Usuario normal → solo sus propios chats.
       • Administrador  → cualquier chat del sistema (modo auditoría).
     """
-    chat = _resolve_chat_for_user(chat_id, user)
+    chat = await _resolve_chat_for_user(chat_id, user)
 
     messages     = await db.get_chat_messages(chat_id)
     files        = await db.get_chat_files(chat_id)
@@ -847,7 +847,7 @@ async def delete_chat(chat_id: int, user: dict = Depends(get_current_user)):
       • Usuario normal → solo puede borrar sus propios chats.
       • Administrador  → puede borrar cualquier chat del sistema.
     """
-    chat = _resolve_chat_for_user(chat_id, user)
+    chat = await _resolve_chat_for_user(chat_id, user)
 
     if await db.is_admin(user):
         success = await db.delete_chat_admin(chat_id)
@@ -873,7 +873,7 @@ async def rename_chat(chat_id: int, data: dict, user: dict = Depends(get_current
     if not title:
         raise HTTPException(status_code=400, detail="Titulo vacio")
 
-    chat = _resolve_chat_for_user(chat_id, user)
+    chat = await _resolve_chat_for_user(chat_id, user)
 
     # update_chat_title filtra internamente por user_id; usamos el propietario real
     await db.update_chat_title(chat_id, chat["user_id"], title)
@@ -902,8 +902,33 @@ async def _do_upload_file(file: UploadFile, user: dict, chat_id: int = None):
     content  = await file.read()
     filepath = save_upload(content, file.filename)
 
+    IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
+
     try:
         text, tokens, metadata = process_file(filepath)
+
+        # ── Análisis visual con IA para imágenes raster ─────────────────
+        if ext in IMAGE_EXTS and metadata.get("has_vision_data"):
+            img_b64  = metadata.pop("_vision_b64", None)
+            img_mime = metadata.pop("_vision_mime", "image/png")
+            metadata.pop("has_vision_data", None)
+
+            if img_b64:
+                try:
+                    vision_desc = await app_state.llm.describe_image(img_b64, mime_type=img_mime)
+                    if vision_desc:
+                        text  += f"\n\n[DESCRIPCIÓN VISUAL POR IA]\n{vision_desc}"
+                        tokens = estimate_tokens(text)
+                        metadata["ai_vision"] = True
+                except Exception:
+                    pass
+        else:
+            # Limpiar claves internas de visión si no se usaron
+            metadata.pop("_vision_b64", None)
+            metadata.pop("_vision_mime", None)
+            metadata.pop("has_vision_data", None)
+
+        # ── Truncar si supera el límite ──────────────────────────────────
         max_tokens = TOKEN_ESTIMATION["max_tokens"]
         if tokens > max_tokens:
             text, tokens = truncate_to_token_limit(text, max_tokens)
@@ -954,6 +979,7 @@ async def upload_multiple_to_chat(
 
     results = []
     total_tokens = 0
+    IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
     for file in files:
         ext = Path(file.filename).suffix.lower()
         if ext not in UPLOAD_CONFIG["allowed_extensions"]:
@@ -962,6 +988,26 @@ async def upload_multiple_to_chat(
         filepath = save_upload(content, file.filename)
         try:
             text, tokens, metadata = process_file(filepath)
+
+            # Visión IA para imágenes
+            if ext in IMAGE_EXTS and metadata.get("has_vision_data"):
+                img_b64  = metadata.pop("_vision_b64", None)
+                img_mime = metadata.pop("_vision_mime", "image/png")
+                metadata.pop("has_vision_data", None)
+                if img_b64:
+                    try:
+                        vision_desc = await app_state.llm.describe_image(img_b64, mime_type=img_mime)
+                        if vision_desc:
+                            text  += f"\n\n[DESCRIPCIÓN VISUAL POR IA]\n{vision_desc}"
+                            tokens = estimate_tokens(text)
+                            metadata["ai_vision"] = True
+                    except Exception:
+                        pass
+            else:
+                metadata.pop("_vision_b64", None)
+                metadata.pop("_vision_mime", None)
+                metadata.pop("has_vision_data", None)
+
             max_tokens = TOKEN_ESTIMATION["max_tokens"]
             if tokens > max_tokens:
                 text, tokens = truncate_to_token_limit(text, max_tokens)
@@ -1068,7 +1114,7 @@ async def chat_status(chat_id: int, user: dict = Depends(get_current_user)):
     if not chat:
         raise HTTPException(status_code=404, detail="Chat no encontrado")
 
-    files = app_state.get_files(user["id"], chat_id)
+    files = await app_state.get_files(user["id"], chat_id)
     total_tokens = sum(f["tokens"] for f in files)
 
     return {
@@ -1083,8 +1129,8 @@ async def chat_status(chat_id: int, user: dict = Depends(get_current_user)):
 
 @app.get("/api/chats/{chat_id}/summary")
 async def chat_summary(chat_id: int, user: dict = Depends(get_current_user)):
-    chat = _resolve_chat_for_user(chat_id, user)
-    files = app_state.get_files(chat["user_id"], chat_id)
+    chat = await _resolve_chat_for_user(chat_id, user)
+    files = await app_state.get_files(chat["user_id"], chat_id)
     messages = await db.get_chat_messages(chat_id)
     user_msgs = [m for m in messages if m["role"] == "user"]
     assistant_msgs = [m for m in messages if m["role"] == "assistant"]
@@ -1108,8 +1154,8 @@ async def chat_summary(chat_id: int, user: dict = Depends(get_current_user)):
 
 @app.get("/api/chats/{chat_id}/export")
 async def chat_export(chat_id: int, user: dict = Depends(get_current_user)):
-    chat = _resolve_chat_for_user(chat_id, user)
-    files = app_state.get_files(chat["user_id"], chat_id)
+    chat = await _resolve_chat_for_user(chat_id, user)
+    files = await app_state.get_files(chat["user_id"], chat_id)
     messages = await db.get_chat_messages(chat_id)
     return {
         "exported_at": _now_iso(),
@@ -1129,8 +1175,8 @@ async def chat_export(chat_id: int, user: dict = Depends(get_current_user)):
 
 @app.get("/api/chats/{chat_id}/files/insights")
 async def chat_file_insights(chat_id: int, user: dict = Depends(get_current_user)):
-    chat = _resolve_chat_for_user(chat_id, user)
-    files = app_state.get_files(chat["user_id"], chat_id)
+    chat = await _resolve_chat_for_user(chat_id, user)
+    files = await app_state.get_files(chat["user_id"], chat_id)
     insights = []
     stop_words = {"para", "con", "una", "por", "que", "del", "los", "las", "the", "and", "este", "esta"}
     for f in files:
@@ -1184,7 +1230,7 @@ async def chat_stream(
     # ── Verificar límite de plan ──────────────────────────────
     await enforce_plan_limits(user["id"], user["plan"])
 
-    files = app_state.get_files(user["id"], chat_id)
+    files = await app_state.get_files(user["id"], chat_id)
     context_text = ""
     if files:
         parts = [f"===== {f['filename']} =====\n{f['text']}" for f in files]
@@ -1600,7 +1646,7 @@ def _save_generation_record(
     return history_id
 
 
-def _find_generation_record(history_id: str, user: dict) -> dict | None:
+async def _find_generation_record(history_id: str, user: dict) -> dict | None:
     for row in _load_generation_history():
         if row.get("id") == history_id and (row.get("user_id") == user["id"] or await db.is_admin(user)):
             return row
@@ -1947,7 +1993,7 @@ async def api_generador_history(user: dict = Depends(get_current_user)):
 
 @app.get("/api/generador/history/{history_id}")
 async def api_generador_history_detail(history_id: str, user: dict = Depends(get_current_user)):
-    row = _find_generation_record(history_id, user)
+    row = await _find_generation_record(history_id, user)
     if not row:
         raise HTTPException(status_code=404, detail="Generación no encontrada")
     return row
@@ -1956,9 +2002,10 @@ async def api_generador_history_detail(history_id: str, user: dict = Depends(get
 @app.delete("/api/generador/history/{history_id}")
 async def api_generador_history_delete(history_id: str, user: dict = Depends(get_current_user)):
     rows = _load_generation_history()
+    user_is_admin = await db.is_admin(user)
     kept = [
         row for row in rows
-        if not (row.get("id") == history_id and (row.get("user_id") == user["id"] or await db.is_admin(user)))
+        if not (row.get("id") == history_id and (row.get("user_id") == user["id"] or user_is_admin))
     ]
     if len(kept) == len(rows):
         raise HTTPException(status_code=404, detail="Generación no encontrada")

@@ -160,7 +160,7 @@ def get_plan_limits(plan: str) -> dict:
 # RATE LIMITING POR PLAN (integración con el sistema existente)
 # ══════════════════════════════════════════════════════════════════════════════
 
-def await check_daily_message_limit(user_id: int, plan: str) -> tuple[bool, int, int]:
+async def check_daily_message_limit(user_id: int, plan: str) -> tuple[bool, int, int]:
     """
     Verifica si el usuario puede enviar otro mensaje hoy.
     Retorna (allowed: bool, used: int, limit: int)

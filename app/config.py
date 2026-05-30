@@ -208,8 +208,9 @@ UPLOAD_CONFIG = {
         ".xlsx", ".xls", ".xlsm", ".ods",
         ".pptx", ".ppt",
         ".odt", ".rtf", ".epub",
-        # ── Imágenes (OCR + descripción) ──
+        # ── Imágenes (análisis visual + OCR) ──
         ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif",
+        ".svg",  # Vector: se parsea como XML estructurado
         # ── Archivos comprimidos ──
         ".zip", ".tar", ".gz", ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".rar", ".7z",
         # ── Notebooks / Otros ──

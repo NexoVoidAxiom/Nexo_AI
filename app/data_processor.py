@@ -361,21 +361,57 @@ def process_pptx(filepath: str) -> Tuple[str, int, dict]:
 
 
 def process_image(filepath: str) -> Tuple[str, int, dict]:
-    """Obtiene metadatos de imagen e intenta OCR si pytesseract está disponible."""
+    """Análisis profundo de imagen: metadatos, colores dominantes, OCR y base64 para visión IA."""
     metadata = {"type": "image"}
     parts = [f"[IMAGEN: {Path(filepath).name}]"]
 
-    # Metadatos básicos con Pillow
     PIL = _try_import("PIL.Image")
     if PIL:
         try:
-            from PIL import Image
+            from PIL import Image, ImageStat
             img = Image.open(filepath)
             w, h = img.size
-            parts.append(f"Dimensiones: {w}×{h}px | Modo: {img.mode} | Formato: {img.format}")
-            metadata.update({"width": w, "height": h, "mode": img.mode})
-        except Exception:
-            pass
+            fmt = img.format or Path(filepath).suffix.upper().lstrip(".")
+            mode = img.mode
+            parts.append(f"Dimensiones: {w}×{h}px | Formato: {fmt} | Modo: {mode}")
+            parts.append(f"Píxeles totales: {w*h:,} | Aspecto: {w/h:.2f}:1")
+            metadata.update({"width": w, "height": h, "mode": mode, "format": fmt})
+
+            # Estadísticas de color por canal
+            img_rgb = img.convert("RGB")
+            stat = ImageStat.Stat(img_rgb)
+            r_mean, g_mean, b_mean = stat.mean[:3]
+            brightness = r_mean * 0.299 + g_mean * 0.587 + b_mean * 0.114
+            brightness_label = "oscura" if brightness < 85 else "media" if brightness < 170 else "clara"
+            parts.append(f"Brillo: {brightness:.0f}/255 ({brightness_label}) | RGB medio: ({r_mean:.0f}, {g_mean:.0f}, {b_mean:.0f})")
+
+            # Colores dominantes (cuantización adaptativa a 8 colores)
+            try:
+                img_small = img_rgb.resize((150, 150))
+                result = img_small.convert("P", palette=Image.ADAPTIVE, colors=8)
+                palette = result.getpalette()
+                dominant = [f"#{palette[i*3]:02x}{palette[i*3+1]:02x}{palette[i*3+2]:02x}" for i in range(8)]
+                parts.append(f"Colores dominantes: {', '.join(dominant)}")
+                metadata["dominant_colors"] = dominant
+            except Exception:
+                pass
+
+            # EXIF si está disponible
+            try:
+                from PIL.ExifTags import TAGS
+                exif_raw = getattr(img, "_getexif", lambda: None)()
+                if exif_raw:
+                    useful = {TAGS.get(k, k): str(v) for k, v in exif_raw.items()
+                              if TAGS.get(k, k) in ("Make", "Model", "DateTime", "Software", "ImageDescription")}
+                    if useful:
+                        parts.append("EXIF: " + " | ".join(f"{k}={v}" for k, v in useful.items()))
+            except Exception:
+                pass
+
+        except Exception as e:
+            parts.append(f"[Error PIL: {e}]")
+    else:
+        parts.append("[PIL/Pillow no disponible — instala Pillow para análisis de imágenes]")
 
     # OCR con pytesseract
     pytesseract = _try_import("pytesseract")
@@ -383,15 +419,135 @@ def process_image(filepath: str) -> Tuple[str, int, dict]:
         try:
             from PIL import Image
             import pytesseract as tess
-            img = Image.open(filepath)
-            ocr_text = tess.image_to_string(img, lang="spa+eng").strip()
+            img_ocr = Image.open(filepath)
+            ocr_text = tess.image_to_string(img_ocr, lang="spa+eng").strip()
             if ocr_text:
                 parts.append(f"\n[TEXTO DETECTADO POR OCR]\n{ocr_text}")
                 metadata["ocr_chars"] = len(ocr_text)
+                metadata["has_text"] = True
         except Exception:
             pass
-    else:
-        parts.append("[OCR no disponible — instala pytesseract para extraer texto de imágenes]")
+
+    # Codificar imagen en base64 para análisis visual con modelo de visión
+    try:
+        import base64
+        with open(filepath, "rb") as f:
+            raw_bytes = f.read()
+        img_b64 = base64.b64encode(raw_bytes).decode("utf-8")
+        ext_lower = Path(filepath).suffix.lower()
+        mime_map = {
+            ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+            ".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+            ".tiff": "image/tiff", ".tif": "image/tiff",
+        }
+        metadata["_vision_b64"] = img_b64
+        metadata["_vision_mime"] = mime_map.get(ext_lower, "image/png")
+        metadata["has_vision_data"] = True
+        parts.append("\n[Imagen lista para análisis visual por IA — se enviará al modelo]")
+    except Exception:
+        pass
+
+    text = "\n".join(parts)
+    return text, estimate_tokens(text), metadata
+
+
+def process_svg(filepath: str) -> Tuple[str, int, dict]:
+    """Parsea un archivo SVG extrayendo estructura visual, colores y texto."""
+    import xml.etree.ElementTree as ET
+
+    parts = [f"[SVG: {Path(filepath).name}]"]
+    metadata = {"type": "svg"}
+
+    try:
+        tree = ET.parse(filepath)
+        root = tree.getroot()
+
+        # Namespace
+        SVG_NS = "http://www.w3.org/2000/svg"
+        def tag_name(elem):
+            t = elem.tag
+            return t.split("}")[-1] if "}" in t else t
+
+        # Atributos raíz
+        vb = root.get("viewBox", "")
+        w = root.get("width", "")
+        h = root.get("height", "")
+        if vb:
+            parts.append(f"ViewBox: {vb}")
+        if w or h:
+            parts.append(f"Dimensiones: {w} × {h}")
+        metadata.update({"viewBox": vb, "width": w, "height": h})
+
+        # Inventario de elementos y colores
+        elem_count: dict = {}
+        colors: set = set()
+        texts_found: list = []
+
+        for elem in root.iter():
+            tname = tag_name(elem)
+            elem_count[tname] = elem_count.get(tname, 0) + 1
+
+            # Colores de atributos y estilos inline
+            for attr in ("fill", "stroke"):
+                val = elem.get(attr, "")
+                if val and val not in ("none", "transparent", "inherit", ""):
+                    colors.add(val)
+            style = elem.get("style", "")
+            for prop in style.split(";"):
+                if ":" in prop:
+                    k, v = prop.split(":", 1)
+                    if k.strip() in ("fill", "stroke") and v.strip() not in ("none", "transparent", ""):
+                        colors.add(v.strip())
+
+            # Texto
+            if tname in ("text", "tspan", "textPath"):
+                content = "".join(elem.itertext()).strip()
+                if content:
+                    texts_found.append(content)
+
+        # Resumen elementos (sin svg/g/defs)
+        visual = {k: v for k, v in elem_count.items()
+                  if k not in ("svg", "g", "defs", "style", "clipPath", "mask", "pattern")}
+        if visual:
+            top = sorted(visual.items(), key=lambda x: -x[1])[:12]
+            parts.append(f"Formas: {', '.join(f'{k}×{v}' for k, v in top)}")
+
+        if colors:
+            parts.append(f"Colores usados: {', '.join(sorted(colors)[:20])}")
+            metadata["colors"] = sorted(colors)[:20]
+
+        if texts_found:
+            parts.append(f"Textos en el SVG:")
+            for t in texts_found[:30]:
+                parts.append(f"  · {t[:300]}")
+            metadata["texts"] = texts_found[:30]
+
+        # title / desc del SVG
+        for tag in ("title", "desc"):
+            el = root.find(f"{{{SVG_NS}}}{tag}")
+            if el is None:
+                el = root.find(tag)
+            if el is not None and el.text:
+                parts.append(f"{tag.capitalize()}: {el.text.strip()}")
+
+        # Código fuente completo (los SVG suelen ser texto legible)
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            raw_svg = f.read()
+        max_svg_chars = 40_000
+        if len(raw_svg) <= max_svg_chars:
+            parts.append(f"\n[CÓDIGO SVG]\n{raw_svg}")
+        else:
+            parts.append(f"\n[CÓDIGO SVG (primeros {max_svg_chars:,} chars de {len(raw_svg):,}])\n{raw_svg[:max_svg_chars]}")
+
+        metadata.update({"elem_count": elem_count, "total_elements": sum(visual.values())})
+
+    except ET.ParseError as e:
+        parts.append(f"[Error al parsear SVG como XML: {e}]")
+        # Fallback: leer como texto
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            parts.append(f.read()[:30_000])
+    except Exception as e:
+        parts.append(f"[Error SVG: {e}]")
 
     text = "\n".join(parts)
     return text, estimate_tokens(text), metadata
@@ -641,9 +797,13 @@ def process_file(filepath: str) -> Tuple[str, int, dict]:
     elif ext in (".pptx", ".ppt"):
         return process_pptx(filepath)
 
-    # ── Imágenes ──
+    # ── Imágenes raster ──
     elif ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"):
         return process_image(filepath)
+
+    # ── Imágenes vectoriales ──
+    elif ext == ".svg":
+        return process_svg(filepath)
 
     # ── Archivos comprimidos ──
     elif ext == ".zip":

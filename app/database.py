@@ -454,7 +454,7 @@ def _ensure_aerys_plan_max(conn) -> None:
     )
 
 
-def is_admin(user: dict) -> bool:
+async def is_admin(user: dict) -> bool:
     return user.get("username", "").strip().lower() == ADMIN_USERNAME.lower()
 
 
@@ -881,4 +881,3 @@ async def check_daily_message_limit(user_id: int, plan: str) -> tuple[bool, int,
         row = await cursor.fetchone()
     used_today = row["cnt"] if row else 0
     return used_today < max_allowed, used_today, max_allowed
-PYEOF
