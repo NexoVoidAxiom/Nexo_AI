@@ -1,0 +1,180 @@
+╔══════════════════════════════════════════════════════════════╗
+║   VOID AXIOM — GUÍA COMPLETA DE COMANDOS Y PRIMEROS PASOS   ║
+╚══════════════════════════════════════════════════════════════╝
+
+⚠  Todos los comandos se ejecutan en la terminal, estando en:
+   C:\Users\34645\Desktop\Prueba de IA Codigo
+
+
+═════════════════════════════════════════════════════════════════
+   🚀 PRIMEROS PASOS (por orden)
+═════════════════════════════════════════════════════════════════
+
+1. INICIAR EL CHAT CON IA
+   ───────────────────────
+   Doble clic en:  Iniciar Analizador IA.bat
+   O desde terminal: python -m app.main
+   Luego abre:      http://localhost:8080
+
+2. DESCARGAR PDFS PARA MEJORAR LA IA
+   ──────────────────────────────────
+   python training/pdf_scraper.py
+   (Te saldrá un menú; pulsa A para descargar de todo)
+
+   Ver solo el reporte de lo descargado:
+   python training/pdf_scraper.py --report
+
+3. ESTUDIAR LOS PDFS (generar preguntas/respuestas)
+   ─────────────────────────────────────────────────
+   python training/study_engine.py
+   (Tarda tiempo porque usa la IA para analizar cada PDF)
+
+   Ver cuántos archivos hay sin procesar:
+   python training/study_engine.py --dry-run
+
+4. CREAR DATASET PARA ENTRENAR
+   ────────────────────────────
+   python training/dataset_builder.py --source D:\knowledge_base_unificada --out ./datasets/
+
+5. ENTRENAR EL MODELO (QLoRA)
+   ───────────────────────────
+   Solo probar configuración (sin entrenar):
+   python training/train_qlora.py --dataset ./datasets/study_qa_*.jsonl --dry-run
+
+   Entrenar de verdad (lleva HORAS):
+   python training/train_qlora.py --dataset ./datasets/study_qa_*.jsonl --output ./lora_adapters/
+
+
+═════════════════════════════════════════════════════════════════
+   📋 TODOS LOS COMANDOS DISPONIBLES
+═════════════════════════════════════════════════════════════════
+
+─── CHAT Y SERVIDOR ────────────────────────────────────────────
+
+   Iniciar servidor web (chat IA):
+     python -m app.main
+     O doble clic: Iniciar Analizador IA.bat
+
+   El chat estará en: http://localhost:8080
+   Generador de código: http://localhost:8080/generador
+   Sistema A2A (agentes): http://localhost:8080/void
+
+─── ESCÁNER DEL SISTEMA ────────────────────────────────────────
+
+   Escaneo completo del sistema:
+     python scripts/scan_check.py
+
+─── DESCARGAR PDFS ─────────────────────────────────────────────
+
+   Menú interactivo (recomendado):
+     python training/pdf_scraper.py
+
+   Solo libros curados:
+     python training/pdf_scraper.py --books
+
+   Solo papers de arXiv:
+     python training/pdf_scraper.py --arxiv
+
+   Solo tutoriales web:
+     python training/pdf_scraper.py --tutorials
+
+   Solo un lenguaje específico (python, java, rust...):
+     python training/pdf_scraper.py --language python
+
+   Ver solo estadísticas:
+     python training/pdf_scraper.py --report
+
+   Simular sin descargar (ver qué se descargaría):
+     python training/pdf_scraper.py --dry-run
+
+   Límite de PDFs por fuente (ej: 10):
+     python training/pdf_scraper.py --limit 10
+
+─── ESTUDIAR PDFS (generar Q&A con IA) ─────────────────────────
+
+   Estudiar todos los PDFs:
+     python training/study_engine.py
+
+   Solo ver cuántos archivos hay (sin procesar):
+     python training/study_engine.py --dry-run
+
+   Procesar solo 10 archivos:
+     python training/study_engine.py --limit 10
+
+   Usar un modelo específico:
+     python training/study_engine.py --model qwen2.5-coder:14b-instruct-q4_K_M
+
+   Reanudar si se interrumpió:
+     python training/study_engine.py --resume
+
+   Más paralelismo (si tienes GPU potente):
+     python training/study_engine.py --workers 4
+
+─── ENTRENAR MODELO ────────────────────────────────────────────
+
+   Probar configuración (dry-run):
+     python training/train_qlora.py --dataset ./datasets/study_qa_*.jsonl --dry-run
+
+   Entrenar modelo completo:
+     python training/train_qlora.py --dataset ./datasets/study_qa_*.jsonl --output ./lora_adapters/
+
+─── GESTIÓN DE ARCHIVOS ────────────────────────────────────────
+
+   Unificar knowledge bases en HDD (ejecutar como Administrador):
+     scripts\unificar_knowledge_hdd.bat
+
+   Dar permisos al HDD (ejecutar como Administrador):
+     scripts\fix_permissions.bat
+
+   Escáner de salud del sistema:
+     python scripts/scan_check.py
+
+─── BATCHES (desde el explorador) ───────────────────────────────
+
+   Iniciar Analizador IA.bat      → Inicia el chat
+   Iniciar Estudio IA.bat          → Estudiar PDFs automáticamente
+   Iniciar Busqueda Continua.bat   → Búsqueda web automática
+   Iniciar Ollama Modo RAM.bat     → Optimizar Ollama para RAM
+   Guardar Cambios Git.bat         → Subir cambios a GitHub
+   Cerrar Tunel.bat                → Cerrar Cloudflare Tunnel
+
+
+═════════════════════════════════════════════════════════════════
+   🏆 RUTA RECOMENDADA (para mejorar la IA al máximo)
+═════════════════════════════════════════════════════════════════
+
+   DÍA 1:
+     1. python training/pdf_scraper.py   (descargar PDFs, opción A)
+     2. python training/study_engine.py   (estudiar PDFs toda la noche)
+
+   DÍA 2:
+     3. python training/dataset_builder.py --source D:\knowledge_base_unificada --out ./datasets/
+     4. python training/train_qlora.py --dataset ./datasets/study_qa_*.jsonl --dry-run
+
+   DÍA 3 (si quieres entrenar):
+     5. python training/train_qlora.py --dataset ./datasets/study_qa_2026*.jsonl --output ./lora_adapters/
+
+   Después de entrenar, puedes usar el modelo fine-tuneado en el chat
+   seleccionándolo desde http://localhost:8080
+
+
+═════════════════════════════════════════════════════════════════
+   💡 ATAJOS ÚTILES
+═════════════════════════════════════════════════════════════════
+
+   Abrir la web del chat:
+     start http://localhost:8080
+
+   Ver qué está usando el puerto 8080:
+     netstat -ano | findstr :8080
+
+   Forzar limpieza de VRAM (GPU):
+     curl http://localhost:8080/api/gc
+
+   Ver logs del estudio:
+     type study_engine.log | more
+
+   Ver logs del scraper:
+     type pdf_scraper.log | more
+
+═════════════════════════════════════════════════════════════════

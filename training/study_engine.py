@@ -451,17 +451,24 @@ class StudyEngine:
         out_path = self.out_dir / f"study_qa_{timestamp}.jsonl"
         ckpt_path = CHECKPOINT_DIR / f"study_ckpt_{timestamp}.json"
 
-        # ── Reunir archivos ──────────────────────────────────────────────────
+        # ── Reunir archivos (SIN DUPLICADOS) ────────────────────────────────
+        # Usamos el path REAL (resolviendo symlinks/junctions) para evitar
+        # que un mismo archivo se procese dos veces.
         if specific_pdf:
             files = [specific_pdf]
         else:
+            seen_real: set[str] = set()
             files = []
             for d in source_dirs:
                 if not d.exists():
                     log.warning(f"  Directorio no existe: {d}")
                     continue
                 for ext in ["*.pdf"] + [f"*{e}" for e in CODE_EXTENSIONS]:
-                    files.extend(d.rglob(ext))
+                    for p in d.rglob(ext):
+                        real = str(p.resolve())  # resuelve symlinks/junctions
+                        if real not in seen_real:
+                            seen_real.add(real)
+                            files.append(p)
 
         files = sorted(files, key=lambda p: p.stat().st_size)
         log.info(f"  Archivos totales encontrados: {len(files)}")
