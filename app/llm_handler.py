@@ -4,22 +4,21 @@ Manejador del LLM Local (Ollama) - ULTRA OPTIMIZADO
 GTX 1080 Ti (11GB VRAM, Pascal) + i7-9700K
 
 OPTIMIZACIONES:
+- Usa /api/chat en vez de /api/generate (historial nativo, mejor formato)
 - Flash Attention: reduce VRAM, acelera atencion en Pascal
 - 8 threads CPU (i7-9700K no tiene HT, usar todos)
 - Keep alive 10 min: modelo caliente en VRAM, sin recargas
 - Pool HTTP 32 conexiones: reduce latencia TCP
 - Perfiles de rendimiento: fast/turbo/ultra
-- System prompts desde config
+- Sin gc.collect() — Python gestiona la memoria automáticamente
 """
 import json
 import httpx
 from typing import AsyncGenerator, Optional
 from app.config import (
     OLLAMA_CONFIG,
-    GC_CONFIG,
     HTTP_CONFIG,
     SYSTEM_PROMPTS,
-    HARDWARE_PROFILE,
 )
 
 
@@ -30,13 +29,13 @@ class OllamaHandler:
     - Pool de conexiones HTTP (32 conexiones)
     - Keep alive 10 min
     - 8 threads CPU
+    - Usa /api/chat en lugar de /api/generate para historial nativo
     """
 
     def __init__(self):
         self.base_url = OLLAMA_CONFIG["base_url"].rstrip("/")
         self.model = OLLAMA_CONFIG["model"]
         self.options = OLLAMA_CONFIG["options"].copy()
-        self.perfiles = OLLAMA_CONFIG.get("perfiles", {})
         self.max_ctx_options = OLLAMA_CONFIG["max_context_config"]
         
         # Pool de conexiones optimizado: 32 conexiones, 5 min timeout
@@ -102,6 +101,36 @@ class OllamaHandler:
         except Exception as e:
             yield f"ERROR: {str(e)}"
 
+    def _build_messages(self, prompt: str, context_text: str = "", system_prompt: Optional[str] = None) -> list[dict]:
+        """Construye el array de mensajes para /api/chat.
+        
+        /api/chat nativamente soporta:
+          - system: instrucciones del sistema
+          - user: mensajes del usuario
+          - assistant: respuestas del asistente
+        
+        Esto reemplaza el concatenado manual que hacía /api/generate,
+        dando mejor calidad de respuesta y manejo nativo del historial.
+        """
+        messages = []
+        
+        # System prompt
+        if system_prompt is None:
+            system_prompt = self._get_system_prompt(prompt, context_text)
+        messages.append({"role": "system", "content": system_prompt})
+        
+        # Contexto como mensaje del sistema adicional (para que el modelo lo procese como referencia)
+        if context_text:
+            messages.append({
+                "role": "system",
+                "content": f"--- CONTEXTO ---\n{context_text}\n--- FIN CONTEXTO ---"
+            })
+        
+        # Mensaje del usuario
+        messages.append({"role": "user", "content": prompt})
+        
+        return messages
+
     def _get_system_prompt(self, prompt: str, context_text: str) -> str:
         """Selecciona el system prompt optimo segun el contexto.
         
@@ -110,7 +139,6 @@ class OllamaHandler:
         - Si no: prompt de chat conversacional
         """
         if context_text:
-            # Detectar si el contexto parece codigo
             codigo_keywords = ["def ", "class ", "function", "import ", "var ", "int ",
                               "void ", "public ", "private ", "const ", "->", "::"]
             codigo_score = sum(1 for kw in codigo_keywords if kw in context_text[:500])
@@ -119,7 +147,6 @@ class OllamaHandler:
                 return SYSTEM_PROMPTS["codigo"]
             return SYSTEM_PROMPTS["analisis"]
         
-        # Detectar si el prompt pide codigo
         codigo_palabras = ["codigo", "codigo", "programa", "funcion", "clase",
                           "bug", "error", "debug", "refactor", "algoritmo"]
         if any(p in prompt.lower() for p in codigo_palabras):
@@ -135,7 +162,7 @@ class OllamaHandler:
         use_max_context: bool = False,
         num_ctx: Optional[int] = None,
     ) -> AsyncGenerator[str, None]:
-        """Genera respuesta con streaming, ULTRA OPTIMIZADO.
+        """Genera respuesta con streaming usando /api/chat.
 
         Args:
             prompt: Pregunta del usuario
@@ -156,26 +183,13 @@ class OllamaHandler:
             options["num_ctx"] = self.max_ctx_options["num_ctx"]
             options["num_batch"] = self.max_ctx_options["num_batch"]
 
-        # Seleccionar system prompt optimo
-        if system_prompt is None:
-            system_prompt = self._get_system_prompt(prompt, context_text)
+        # Construir mensajes para /api/chat
+        messages = self._build_messages(prompt, context_text, system_prompt)
 
-        # Construir prompt completo
-        if context_text:
-            full_prompt = (
-                f"{system_prompt}\n\n"
-                f"--- CONTEXTO ---\n"
-                f"{context_text}\n"
-                f"--- FIN CONTEXTO ---\n\n"
-                f"{prompt}"
-            )
-        else:
-            full_prompt = f"{system_prompt}\n\n{prompt}"
-
-        # Payload con keep_alive
+        # Payload con keep_alive usando /api/chat
         payload = {
             "model": self.model,
-            "prompt": full_prompt,
+            "messages": messages,
             "options": options,
             "stream": True,
         }
@@ -183,14 +197,14 @@ class OllamaHandler:
         # ─── STREAMING ──────────────────────────────────────────────
         try:
             async with self.client.stream(
-                "POST", f"{self.base_url}/api/generate", json=payload
+                "POST", f"{self.base_url}/api/chat", json=payload
             ) as response:
                 async for line in response.aiter_lines():
                     if line:
                         try:
                             data = json.loads(line)
-                            if "response" in data:
-                                yield data["response"]
+                            if "message" in data and "content" in data["message"]:
+                                yield data["message"]["content"]
                             if data.get("done", False):
                                 yield "\n[DONE]"
                                 break
@@ -204,11 +218,6 @@ class OllamaHandler:
             )
         except Exception as e:
             yield f"\n\n**Error**: {str(e)}\n[DONE]"
-
-        finally:
-            # Liberar las referencias locales grandes — Python recuperará la memoria
-            # en el siguiente ciclo del GC sin necesidad de forzarlo.
-            del full_prompt, payload
 
     async def generate(
         self,
@@ -241,23 +250,24 @@ class OllamaHandler:
         Si el modelo activo no soporta visión, intenta con llava o moondream
         como fallback si están disponibles en Ollama.
         """
-        # Modelos de visión conocidos para priorizar como fallback
         VISION_MODELS = ["llava", "moondream", "bakllava", "llava-phi3",
                          "minicpm-v", "qwen2-vl", "llava-llama3", "cogvlm"]
 
         async def _call_vision(model: str, b64: str, q: str) -> str:
             payload = {
                 "model": model,
-                "prompt": q,
-                "images": [b64],
+                "messages": [
+                    {"role": "user", "content": q, "images": [b64]}
+                ],
                 "stream": False,
                 "options": {"num_predict": 600, "temperature": 0.3, "num_thread": 4},
             }
             resp = await self.client.post(
-                f"{self.base_url}/api/generate", json=payload, timeout=90.0
+                f"{self.base_url}/api/chat", json=payload, timeout=90.0
             )
             if resp.status_code == 200:
-                return resp.json().get("response", "").strip()
+                data = resp.json()
+                return data.get("message", {}).get("content", "").strip()
             return ""
 
         # 1. Intentar con el modelo activo
@@ -300,12 +310,17 @@ class OllamaHandler:
         """
         payload = {
             "model": "qwen2.5-coder:3b",
-            "prompt": (
-                "Genera un titulo muy corto (maximo 6 palabras) que describa de que va "
-                "el siguiente mensaje de chat. Responde SOLO con el titulo, "
-                "sin puntos, sin comillas, sin explicaciones:\n\n"
-                + first_message[:500]
-            ),
+            "messages": [
+                {
+                    "role": "user",
+                    "content": (
+                        "Genera un titulo muy corto (maximo 6 palabras) que describa de que va "
+                        "el siguiente mensaje de chat. Responde SOLO con el titulo, "
+                        "sin puntos, sin comillas, sin explicaciones:\n\n"
+                        + first_message[:500]
+                    )
+                }
+            ],
             "options": {
                 "num_ctx": 512,
                 "num_batch": 512,
@@ -317,11 +332,11 @@ class OllamaHandler:
         }
         try:
             resp = await self.client.post(
-                f"{self.base_url}/api/generate", json=payload, timeout=20.0
+                f"{self.base_url}/api/chat", json=payload, timeout=20.0
             )
             if resp.status_code == 200:
-                title = resp.json().get("response", "").strip()
-                # Limpiar artefactos comunes
+                data = resp.json()
+                title = data.get("message", {}).get("content", "").strip()
                 title = (
                     title.replace('"', "")
                     .replace("'", "")

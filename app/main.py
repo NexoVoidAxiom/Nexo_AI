@@ -13,7 +13,6 @@ Nuevo sistema:
 Hardware: GTX 1080 Ti (11GB) + i7-9700K + 32GB RAM
 """
 
-import gc
 import os
 import json
 import re
@@ -35,7 +34,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from starlette.background import BackgroundTask
 import uvicorn
 
-from app.config import SERVER_CONFIG, UPLOAD_CONFIG, TOKEN_ESTIMATION, GC_CONFIG
+from app.config import SERVER_CONFIG, UPLOAD_CONFIG, TOKEN_ESTIMATION
 from app.auth import AuthMiddleware, get_current_user, get_auth_page
 from app import database as db
 from app.data_processor import (
@@ -1413,19 +1412,21 @@ async def _auto_title(chat_id: int, user_id: int, first_message: str):
 
 
 # ─── GC ───────────────────────────────────────────────────────────────────────
+# OPTIMIZACIÓN: Se eliminó gc.collect() porque Python gestiona la memoria
+# automáticamente. Llamar gc.collect() tras cada stream causaba pausas
+# innecesarias sin beneficio real. El recolector de Python se ejecuta solo
+# cuando es necesario.
 
 @app.post("/api/gc")
 async def force_gc(user: dict = Depends(get_current_user)):
-    collected = gc.collect()
-    cuda_freed = False
     try:
         import torch
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-            cuda_freed = True
+            return {"status": "ok", "cuda_cache_cleared": True}
     except ImportError:
         pass
-    return {"status": "ok", "objects_collected": collected, "cuda_cache_cleared": cuda_freed}
+    return {"status": "ok"}
 
 
 # ─── ENTRY POINT ──────────────────────────────────────────────────────────────
@@ -1799,11 +1800,15 @@ async def _ollama_generate_stream_events(
 ):
     """Como _ollama_generate pero hace yield de eventos thinking_token en tiempo real.
     Al finalizar hace yield del texto completo como cadena en el último elemento (str).
+    Migrado a /api/chat para mejor manejo del historial nativo.
     """
     safe_max_tokens = min(max_tokens, int(num_ctx * 0.65))
     payload = {
         "model": model,
-        "prompt": prompt,
+        "messages": [
+            {"role": "system", "content": "Eres un asistente de IA experto en desarrollo de software."},
+            {"role": "user", "content": prompt},
+        ],
         "options": {
             "num_ctx":        num_ctx,
             "num_predict":    safe_max_tokens,
@@ -1818,7 +1823,7 @@ async def _ollama_generate_stream_events(
     full_response = ""
     try:
         async with client.stream(
-            "POST", f"{base_url}/api/generate", json=payload, timeout=1200.0
+            "POST", f"{base_url}/api/chat", json=payload, timeout=1200.0
         ) as resp:
             if resp.status_code != 200:
                 raise HTTPException(502, f"Error Ollama {resp.status_code}")
@@ -1829,10 +1834,11 @@ async def _ollama_generate_stream_events(
                     continue
                 try:
                     chunk = json.loads(line)
-                    token = chunk.get("response", "")
-                    if token:
-                        full_response += token
-                        yield json.dumps({"type": "thinking_token", "text": token}, ensure_ascii=False) + "\n"
+                    if "message" in chunk and "content" in chunk["message"]:
+                        token = chunk["message"]["content"]
+                        if token:
+                            full_response += token
+                            yield json.dumps({"type": "thinking_token", "text": token}, ensure_ascii=False) + "\n"
                     if chunk.get("done"):
                         break
                 except Exception:
@@ -1859,7 +1865,10 @@ async def _ollama_generate(
     safe_max_tokens = min(max_tokens, int(num_ctx * 0.65))
     payload = {
         "model": model,
-        "prompt": prompt,
+        "messages": [
+            {"role": "system", "content": "Eres un asistente de IA experto en desarrollo de software."},
+            {"role": "user", "content": prompt},
+        ],
         "options": {
             "num_ctx":        num_ctx,
             "num_predict":    safe_max_tokens,
@@ -1874,7 +1883,7 @@ async def _ollama_generate(
     try:
         full_response = ""
         async with client.stream(
-            "POST", f"{base_url}/api/generate", json=payload, timeout=1200.0
+            "POST", f"{base_url}/api/chat", json=payload, timeout=1200.0
         ) as resp:
             if resp.status_code != 200:
                 raise HTTPException(502, f"Error Ollama {resp.status_code}")
@@ -1885,7 +1894,8 @@ async def _ollama_generate(
                     continue
                 try:
                     chunk = json.loads(line)
-                    full_response += chunk.get("response", "")
+                    if "message" in chunk and "content" in chunk["message"]:
+                        full_response += chunk["message"]["content"]
                     if chunk.get("done"):
                         break
                 except Exception:
@@ -2013,10 +2023,392 @@ async def api_generador_history_delete(history_id: str, user: dict = Depends(get
     return {"status": "ok"}
 
 
+async def _build_verify_result(files: list, static_result: dict, model: str, req: GeneradorFilesRequest) -> dict:
+    """Helper: ejecuta verificacion con 14B (sin streaming) y combina resultados."""
+    project_snapshot = "\n\n".join(
+        f"### ARCHIVO: {f['path']} ###\n{f['content'][:3000]}"
+        for f in files[:15]
+    )
+    prompt = (
+        "Eres un revisor de codigo experto. Analiza este proyecto generado por IA "
+        "y detecta errores reales:\n"
+        "  - Imports de modulos/archivos que no existen\n"
+        "  - Funciones llamadas pero no definidas\n"
+        "  - Variables usadas sin declarar\n"
+        "  - Errores de sintaxis o logica\n"
+        "  - Inconsistencias entre archivos\n\n"
+        f"Proyecto: {req.project_name}\n"
+        f"Stack: {req.stack}\n"
+        f"Descripcion original: {req.prompt[:1000]}\n\n"
+        f"{project_snapshot}\n\n"
+        "Responde SOLO con un JSON con esta estructura exacta, nada mas:\n"
+        "{\"score\": 0-100, \"errors\": [], \"warnings\": [], \"ai_review\": \"resumen breve\"}\n"
+        "Cada error/warning debe tener: {\"severity\": \"error\"|\"warning\", \"path\": \"archivo\", "
+        "\"message\": \"descripcion\", \"line\": numero_opcional}"
+    )
+    try:
+        raw = await _ollama_generate(
+            app_state.llm.base_url, app_state.llm.client, model,
+            prompt, max_tokens=3000, temperature=0.0, num_ctx=8192,
+        )
+        ai_result = _extract_json(raw)
+        if ai_result and isinstance(ai_result, dict):
+            seen = set()
+            combined = []
+            for err in static_result.get("issues", []) + ai_result.get("errors", []) + ai_result.get("warnings", []):
+                msg = err.get("message", "")
+                if msg and msg not in seen:
+                    seen.add(msg)
+                    combined.append(err)
+            return {
+                "score": ai_result.get("score", static_result.get("score", 100)),
+                "errors": sum(1 for e in combined if e.get("severity") == "error"),
+                "warnings": sum(1 for e in combined if e.get("severity") == "warning"),
+                "issues": combined,
+                "file_count": static_result.get("file_count", len(files)),
+                "total_lines": static_result.get("total_lines", 0),
+                "ai_review": ai_result.get("ai_review", ""),
+                "model_used": model,
+            }
+    except Exception:
+        pass
+    return static_result
+
+
 @app.post("/api/generador/verificar")
 async def api_generador_verificar(req: GeneradorFilesRequest, user: dict = Depends(get_current_user)):
+    """Verifica con 14B (sin streaming — version legacy)."""
     files = _sanitize_generated_files(req.files)
-    return _verify_generated_files(files)
+    if len(files) < 1:
+        return _verify_generated_files(files)
+    return await _build_verify_result(files, _verify_generated_files(files), GENERADOR_REVIEWER_MODEL, req)
+
+
+@app.post("/api/generador/verificar-stream")
+async def api_generador_verificar_stream(req: GeneradorFilesRequest, request: Request, user: dict = Depends(get_current_user)):
+    """
+    Verifica el codigo con el 14B transmitiendo thinking_tokens en tiempo real via NDJSON.
+    
+    Eventos emitidos:
+        {"type":"thinking_start","msg":"🔍 14B revisando codigo..."}
+        {"type":"thinking_token","text":"token..."}
+        {"type":"thinking_end"}
+        {"type":"verify_result","data":{...resultado completo...}}
+    """
+    files = _sanitize_generated_files(req.files)
+    static_result = _verify_generated_files(files) if files else {"score": 100, "errors": 0, "warnings": 0, "issues": [], "file_count": 0, "total_lines": 0}
+    
+    async def stream():
+        async def client_disconnected() -> bool:
+            try: return await request.is_disconnected()
+            except RuntimeError: return False
+        
+        def ndjson(payload: dict) -> str:
+            return json.dumps(payload, ensure_ascii=False) + "\n"
+        
+        if len(files) < 1:
+            yield ndjson({"type": "verify_result", "data": static_result})
+            return
+        
+        # Construir snapshot
+        project_snapshot = "\n\n".join(
+            f"### ARCHIVO: {f['path']} ###\n{f['content'][:3000]}"
+            for f in files[:15]
+        )
+        
+        prompt = (
+            "Eres un revisor de codigo experto. Analiza este proyecto generado por IA "
+            "y detecta errores reales:\n"
+            "  - Imports de modulos/archivos que no existen\n"
+            "  - Funciones llamadas pero no definidas\n"
+            "  - Variables usadas sin declarar\n"
+            "  - Errores de sintaxis o logica\n"
+            "  - Inconsistencias entre archivos\n\n"
+            f"Proyecto: {req.project_name}\n"
+            f"Stack: {req.stack}\n"
+            f"Descripcion original: {req.prompt[:1000]}\n\n"
+            f"{project_snapshot}\n\n"
+            "Responde SOLO con un JSON con esta estructura exacta, nada mas:\n"
+            "{\"score\": 0-100, \"errors\": [], \"warnings\": [], \"ai_review\": \"resumen breve\"}\n"
+            "Cada error/warning debe tener: {\"severity\": \"error\"|\"warning\", \"path\": \"archivo\", "
+            "\"message\": \"descripcion\", \"line\": numero_opcional}"
+        )
+        
+        yield ndjson({"type": "thinking_start", "msg": f"🔍 {GENERADOR_REVIEWER_MODEL} revisando codigo..."})
+        
+        try:
+            raw = None
+            async for event in _ollama_generate_stream_events(
+                app_state.llm.base_url, app_state.llm.client, GENERADOR_REVIEWER_MODEL,
+                prompt, max_tokens=3000, temperature=0.0, num_ctx=8192,
+                cancel_check=client_disconnected,
+            ):
+                if isinstance(event, str) and not event.startswith("{"):
+                    raw = event
+                else:
+                    yield event  # thinking_token events
+            if raw is None:
+                raise Exception("No se recibio respuesta del 14B")
+        except (asyncio.CancelledError, GeneratorExit):
+            return
+        except Exception as e:
+            yield ndjson({"type": "thinking_end"})
+            yield ndjson({"type": "verify_result", "data": {**static_result, "ai_review": f"Error 14B: {e}"}})
+            return
+        
+        yield ndjson({"type": "thinking_end"})
+        
+        ai_result = _extract_json(raw)
+        if ai_result and isinstance(ai_result, dict):
+            seen = set()
+            combined = []
+            for err in static_result.get("issues", []) + ai_result.get("errors", []) + ai_result.get("warnings", []):
+                msg = err.get("message", "")
+                if msg and msg not in seen:
+                    seen.add(msg)
+                    combined.append(err)
+            result = {
+                "score": ai_result.get("score", static_result.get("score", 100)),
+                "errors": sum(1 for e in combined if e.get("severity") == "error"),
+                "warnings": sum(1 for e in combined if e.get("severity") == "warning"),
+                "issues": combined,
+                "file_count": static_result.get("file_count", len(files)),
+                "total_lines": static_result.get("total_lines", 0),
+                "ai_review": ai_result.get("ai_review", ""),
+                "model_used": GENERADOR_REVIEWER_MODEL,
+            }
+        else:
+            result = static_result
+        
+        yield ndjson({"type": "verify_result", "data": result})
+    
+    return StreamingResponse(
+        stream(),
+        media_type="application/x-ndjson; charset=utf-8",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/api/generador/auto-fix")
+async def api_generador_auto_fix(req: GeneradorFilesRequest, request: Request, user: dict = Depends(get_current_user)):
+    """
+    Repara errores con el 14B transmitiendo thinking_tokens en tiempo real via NDJSON.
+    
+    Eventos emitidos:
+        {"type":"phase","msg":"Analizando errores..."}
+        {"type":"thinking_start","msg":"..."}
+        {"type":"thinking_token","text":"..."}
+        {"type":"thinking_end"}
+        {"type":"fix_file","path":"...","msg":"Reparando archivo X..."}
+        {"type":"fix_done","path":"...","lines":N}
+        {"type":"done","data":{...resultado completo...}}
+    """
+    files = _sanitize_generated_files(req.files)
+    if not files:
+        raise HTTPException(status_code=400, detail="No hay archivos para reparar")
+    
+    async def stream():
+        async def client_disconnected() -> bool:
+            try: return await request.is_disconnected()
+            except RuntimeError: return False
+        
+        def ndjson(payload: dict) -> str:
+            return json.dumps(payload, ensure_ascii=False) + "\n"
+        
+        # 1. Verificacion inicial con streaming
+        yield ndjson({"type": "phase", "msg": "🔍 Analizando errores con 14B..."})
+        yield ndjson({"type": "thinking_start", "msg": f"🔍 {GENERADOR_REVIEWER_MODEL} revisando codigo..."})
+        
+        # Reutilizar la logica de verificacion
+        project_snapshot = "\n\n".join(
+            f"### ARCHIVO: {f['path']} ###\n{f['content'][:3000]}" for f in files[:15]
+        )
+        prompt = (
+            "Eres un revisor de codigo experto. Analiza este proyecto generado por IA "
+            "y detecta errores reales:\n"
+            "  - Imports de modulos/archivos que no existen\n"
+            "  - Funciones llamadas pero no definidas\n"
+            "  - Variables usadas sin declarar\n"
+            "  - Errores de sintaxis o logica\n"
+            "  - Inconsistencias entre archivos\n\n"
+            f"Proyecto: {req.project_name}\n"
+            f"Stack: {req.stack}\n"
+            f"Descripcion original: {req.prompt[:1000]}\n\n"
+            f"{project_snapshot}\n\n"
+            "Responde SOLO con JSON: {\"score\":0-100,\"errors\":[],\"warnings\":[],\"ai_review\":\"...\"}"
+        )
+        
+        raw = None
+        try:
+            async for event in _ollama_generate_stream_events(
+                app_state.llm.base_url, app_state.llm.client, GENERADOR_REVIEWER_MODEL,
+                prompt, max_tokens=3000, temperature=0.0, num_ctx=8192,
+                cancel_check=client_disconnected,
+            ):
+                if isinstance(event, str) and not event.startswith("{"):
+                    raw = event
+                else:
+                    yield event
+        except (asyncio.CancelledError, GeneratorExit):
+            return
+        except Exception:
+            yield ndjson({"type": "thinking_end"})
+            yield ndjson({"type": "done", "data": {"status": "error", "message": "Error en verificacion inicial"}})
+            return
+        
+        yield ndjson({"type": "thinking_end"})
+        
+        ai_result = _extract_json(raw) if raw else None
+        static_result = _verify_generated_files(files)
+        
+        # Combinar errores
+        issues = static_result.get("issues", [])
+        if ai_result:
+            for e in ai_result.get("errors", []) + ai_result.get("warnings", []):
+                if e.get("message", "") not in {i.get("message", "") for i in issues}:
+                    issues.append(e)
+        
+        errors_only = [i for i in issues if i.get("severity") == "error"]
+        warnings_only = [i for i in issues if i.get("severity") == "warning"]
+        
+        if not errors_only and not warnings_only:
+            yield ndjson({"type": "done", "data": {
+                "status": "ok", "message": "No se detectaron errores.", "files_fixed": 0, "files": files,
+                "verification": {"score": 100, "errors": 0, "warnings": 0, "issues": []}
+            }})
+            return
+        
+        # 2. Reparar archivos UNO POR UNO con el 14B
+        yield ndjson({"type": "phase", "msg": f"🔧 Reparando {len(errors_only)} archivos con errores..."})
+        
+        error_context = "\n".join(
+            f"- [{e.get('severity','error').upper()}] {e.get('path','')}: {e.get('message','')}"
+            for e in (errors_only + warnings_only)[:30]
+        )
+        
+        fixed_count = 0
+        paths_with_errors = set(e.get("path", "") for e in errors_only)
+        
+        for f in files:
+            if f["path"] in paths_with_errors:
+                yield ndjson({"type": "fix_file", "path": f["path"], "msg": f"🔧 14B reparando {f['path']}..."})
+                yield ndjson({"type": "thinking_start", "msg": f"14B reescribiendo {f['path']}..."})
+                
+                fix_prompt = (
+                    "Eres un programador experto. El siguiente archivo tiene errores que debes corregir.\n\n"
+                    f"Proyecto: {req.project_name}\nStack: {req.stack}\nArchivo: {f['path']}\n\n"
+                    f"ERRORES:\n{error_context}\n\n"
+                    f"CODIGO ACTUAL:\n```\n{f['content']}\n```\n\n"
+                    "Reescribe el archivo COMPLETO corrigiendo TODOS los errores. Solo codigo, sin markdown."
+                )
+                
+                raw_fix = None
+                try:
+                    async for event in _ollama_generate_stream_events(
+                        app_state.llm.base_url, app_state.llm.client, GENERADOR_REVIEWER_MODEL,
+                        fix_prompt, max_tokens=4500, temperature=0.05, num_ctx=8192,
+                        cancel_check=client_disconnected,
+                    ):
+                        if isinstance(event, str) and not event.startswith("{"):
+                            raw_fix = event
+                        else:
+                            yield event
+                except Exception:
+                    yield ndjson({"type": "thinking_end"})
+                    continue
+                
+                yield ndjson({"type": "thinking_end"})
+                
+                if raw_fix:
+                    fixed_content = _clean_code(raw_fix, f["path"])
+                    if fixed_content and len(fixed_content) > 10:
+                        f["content"] = fixed_content
+                        lines_final = len(fixed_content.splitlines())
+                        fixed_count += 1
+                        yield ndjson({"type": "fix_done", "path": f["path"], "lines": lines_final,
+                                      "msg": f"✅ {f['path']} reparado ({lines_final} lineas)"})
+        
+        # 3. Verificacion final
+        yield ndjson({"type": "phase", "msg": "🔍 Verificando proyecto reparado..."})
+        
+        # Si hay errores restantes, segunda pasada
+        verify_result_issues = issues
+        if errors_only and fixed_count > 0:
+            # Re-verificar con streaming
+            snap2 = "\n\n".join(f"### {f['path']} ###\n{f['content'][:3000]}" for f in files[:15])
+            prompt2 = (
+                "Eres un revisor. Verifica si estos archivos corregidos aun tienen errores.\n"
+                f"Proyecto: {req.project_name}\n\n{snap2}\n\n"
+                "Responde JSON: {\"score\":0-100,\"errors\":[],\"warnings\":[],\"ai_review\":\"...\"}"
+            )
+            yield ndjson({"type": "thinking_start", "msg": "14B verificando correcciones..."})
+            raw2 = None
+            try:
+                async for event in _ollama_generate_stream_events(
+                    app_state.llm.base_url, app_state.llm.client, GENERADOR_REVIEWER_MODEL,
+                    prompt2, max_tokens=3000, temperature=0.0, num_ctx=8192,
+                    cancel_check=client_disconnected,
+                ):
+                    if isinstance(event, str) and not event.startswith("{"):
+                        raw2 = event
+                    else:
+                        yield event
+            except Exception:
+                pass
+            yield ndjson({"type": "thinking_end"})
+            
+            if raw2:
+                ai2 = _extract_json(raw2)
+                if ai2:
+                    verify_result_issues = ai2.get("errors", []) + ai2.get("warnings", [])
+                    
+                    # Si aun hay errores, segunda pasada solo en archivos con problemas
+                    remaining_errors = [e for e in verify_result_issues if e.get("severity") == "error"]
+                    if remaining_errors:
+                        yield ndjson({"type": "phase", "msg": "🔄 Segunda pasada de reparacion..."})
+                        remaining_paths = set(e.get("path", "") for e in remaining_errors)
+                        retry_ctx = "\n".join(f"- ERROR {e.get('path','')}: {e.get('message','')}" for e in remaining_errors[:15])
+                        for f in files:
+                            if f["path"] in remaining_paths:
+                                yield ndjson({"type": "fix_file", "path": f["path"], "msg": f"🔄 Segunda reparacion de {f['path']}..."})
+                                retry_prompt = (
+                                    f"AUN HAY ERRORES en {f['path']}. Corrigelos:\n\n"
+                                    f"ERRORES:\n{retry_ctx}\n\nCODIGO:\n```\n{f['content']}\n```\n\nSolo codigo corregido."
+                                )
+                                raw_retry = await _ollama_generate(
+                                    app_state.llm.base_url, app_state.llm.client, GENERADOR_REVIEWER_MODEL,
+                                    retry_prompt, max_tokens=4500, temperature=0.03, num_ctx=8192,
+                                )
+                                if raw_retry:
+                                    fc = _clean_code(raw_retry, f["path"])
+                                    if fc and len(fc) > 10:
+                                        f["content"] = fc
+                                        fixed_count += 1
+        
+        remaining = len([i for i in verify_result_issues if isinstance(i, dict) and i.get("severity") == "error"])
+        
+        yield ndjson({"type": "done", "data": {
+            "status": "ok" if remaining == 0 else "partial",
+            "message": f"Archivos reparados: {fixed_count}. Errores restantes: {remaining}" if remaining > 0
+                       else f"✅ Todos los errores corregidos ({fixed_count} archivos reparados).",
+            "files_fixed": fixed_count,
+            "errors_resolved": len(errors_only) - remaining,
+            "errors_remaining": remaining,
+            "model_used": GENERADOR_REVIEWER_MODEL,
+            "files": files,
+            "verification": {
+                "score": max(0, 100 - remaining * 25),
+                "errors": remaining,
+                "warnings": len(warnings_only),
+                "issues": verify_result_issues[:30],
+            }
+        }})
+    
+    return StreamingResponse(
+        stream(),
+        media_type="application/x-ndjson; charset=utf-8",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.post("/api/generador/exportar")
@@ -2361,6 +2753,13 @@ async def api_generador_generar(
                 code_a = f"# ⚠ Agent A error generating {fpath}: {e}"
 
             lines_a = len(code_a.splitlines())
+            
+            # Emitir file_done del Agente A ANTES de empezar el Agente B
+            yield ndjson({"type": "file_done",
+                "index": i, "path": fpath, "content": code_a,
+                "lines": lines_a, "lines_a": lines_a,
+                "model": GENERADOR_AGENT_A_MODEL,
+                "msg": f"✅ {fpath} — A:{lines_a} líneas (implementado)"})
 
             # ── AGENTE B: Crítico / Enriquecedor ────────────────────────
             yield ndjson({"type":"file_start","index":i,"total":len(plan_files),

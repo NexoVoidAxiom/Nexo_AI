@@ -50,29 +50,45 @@ def scan_all():
     for d in ["app", "training", "static", "data", "core", "agents", "scripts"]:
         ok = check(f"Directorio {d}/", (BASE / d).exists())
         results["ok" if ok else "fail"] += 1
-    for f in ["main.py", "requirements.txt", "apply_fixes.py", "migrate_db.py"]:
-        ok = check(f"Archivo {f}", (BASE / f).exists())
+    
+    files_to_check = [
+        ("main.py", "app/main.py"),
+        ("requirements.txt", "requirements.txt"),
+        ("migrate_db.py", "migrate_db.py"),
+        ("apply_fixes.py", "scripts/apply_fixes.py"),
+    ]
+    for label, path in files_to_check:
+        exists = (BASE / path).exists()
+        if not exists and "apply_fixes" in path:
+            warning("apply_fixes.py no encontrado (no es critico)")
+            results["warn"] += 1
+            continue
+        ok = check(f"Archivo {label}", exists)
         results["ok" if ok else "fail"] += 1
 
     step(2, "PYTHON Y DEPENDENCIAS")
     check("Python instalado", True, f"Version: {sys.version.split()[0]}")
     results["ok"] += 1
     
-    critical = {"fastapi": "Servidor web", "uvicorn": "Servidor ASGI", "pydantic": "Validacion", "sqlite3": "Base datos"}
-    for mod, desc in critical.items():
+    for mod, desc in [("fastapi", "Servidor web (fastapi)"), ("uvicorn", "Servidor ASGI (uvicorn)"),
+                       ("pydantic", "Validacion (pydantic)"), ("aiosqlite", "Base datos async (aiosqlite)")]:
         try:
             importlib.import_module(mod)
-            ok = check(f"{desc} ({mod})", True); results["ok"] += 1
+            results["ok"] += 1
+            check(f"{desc}", True)
         except ImportError:
-            ok = check(f"{desc} ({mod})", False, f"pip install {mod}"); results["fail"] += 1
+            results["fail"] += 1
+            check(f"{desc}", False, f"pip install {mod}")
     
-    optional = {"pypdf": "Lectura PDFs", "httpx": "HTTP async", "tiktoken": "Tokens", "duckduckgo_search": "Busqueda web"}
-    for mod, desc in optional.items():
+    for mod, desc in [("pypdf", "Lectura PDFs"), ("httpx", "HTTP async"),
+                       ("tiktoken", "Tokens"), ("duckduckgo_search", "Busqueda web")]:
         try:
             importlib.import_module(mod)
-            check(f"Opcional: {desc}", True); results["ok"] += 1
+            results["ok"] += 1
+            check(f"Opcional: {desc}", True)
         except ImportError:
-            warning(f"Opcional no instalado: {desc}"); results["warn"] += 1
+            results["warn"] += 1
+            warning(f"Opcional no instalado: {desc}")
 
     step(3, "OLLAMA - MOTOR DE IA LOCAL")
     import urllib.request
@@ -88,10 +104,13 @@ def scan_all():
                 for m in models:
                     info(f"  - {m.get('name','?')}")
             else:
-                warning("No hay modelos instalados"); results["warn"] += 1
+                warning("No hay modelos instalados")
+                results["warn"] += 1
     except Exception as e:
-        check("Ollama accesible", False); results["fail"] += 1
-        warning(f"Error: {e}", "Ejecuta 'ollama serve'"); results["warn"] += 1
+        check("Ollama accesible", False)
+        results["fail"] += 1
+        warning(f"Error: {e}", "Ejecuta 'ollama serve'")
+        results["warn"] += 1
 
     step(4, "BASE DE CONOCIMIENTO")
     kb = BASE / "knowledge_base"
@@ -101,15 +120,18 @@ def scan_all():
         check("knowledge_base existe", True, f"{pdfs+codes} archivos ({pdfs} PDFs, {codes} codigo)")
         results["ok"] += 1
     else:
-        check("knowledge_base existe", False, "Crea el directorio"); results["fail"] += 1
+        check("knowledge_base existe", False, "Crea el directorio")
+        results["fail"] += 1
 
     step(5, "DATASETS")
     ds = BASE / "datasets"
     if ds.exists():
         files = list(ds.glob("*.jsonl"))
-        check("datasets/ existe", True, f"{len(files)} JSONL"); results["ok"] += 1
+        check("datasets/ existe", True, f"{len(files)} JSONL")
+        results["ok"] += 1
     else:
-        check("datasets/ existe", False); results["fail"] += 1
+        check("datasets/ existe", False)
+        results["fail"] += 1
 
     step(6, "SERVIDOR WEB (localhost:8080)")
     try:
@@ -117,18 +139,22 @@ def scan_all():
         with urllib.request.urlopen(req, timeout=3) as resp:
             d = json.loads(resp.read())
             if d.get("status") == "ok":
-                check("Servidor web activo", True, "http://localhost:8080"); results["ok"] += 1
+                check("Servidor web activo", True, "http://localhost:8080")
+                results["ok"] += 1
             else:
-                check("Servidor web", False); results["fail"] += 1
+                check("Servidor web", False)
+                results["fail"] += 1
     except:
         check("Servidor web", False, "Ejecuta el batch Iniciar Analizador IA.bat")
         results["fail"] += 1
 
     step(7, "SCRIPTS DISPONIBLES")
     for bf in list(BASE.glob("*.bat")):
-        check(f"Batch: {bf.name}", True); results["ok"] += 1
+        check(f"Batch: {bf.name}", True)
+        results["ok"] += 1
     for sf in list((BASE / "scripts").glob("*.*")) if (BASE / "scripts").exists() else []:
-        check(f"Script: {sf.name}", True); results["ok"] += 1
+        check(f"Script: {sf.name}", True)
+        results["ok"] += 1
 
     step(8, "TRAINING")
     for tf in ["study_engine.py","dataset_builder.py","pdf_scraper.py","train_qlora.py"]:
@@ -143,12 +169,15 @@ def scan_all():
         info("Puerto 8080: " + ("ocupado" if r == 0 else "libre"))
         results["ok"] += 1
     except:
-        warning("No se pudo verificar puerto 8080"); results["warn"] += 1
+        warning("No se pudo verificar puerto 8080")
+        results["warn"] += 1
     try:
         urllib.request.urlopen("http://8.8.8.8", timeout=3)
-        check("Internet", True); results["ok"] += 1
+        check("Internet", True)
+        results["ok"] += 1
     except:
-        warning("Sin internet"); results["warn"] += 1
+        warning("Sin internet")
+        results["warn"] += 1
 
     step(10, "TUNELES")
     for name, exe in [("cloudflared","cloudflared.exe"),("ngrok","ngrok.exe")]:
@@ -186,7 +215,8 @@ def _which(program):
     try:
         r = subprocess.run(["where", program], capture_output=True, text=True, timeout=5)
         return r.returncode == 0
-    except: return False
+    except:
+        return False
 
 if __name__ == "__main__":
     scan_all()

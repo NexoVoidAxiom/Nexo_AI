@@ -377,7 +377,8 @@ select:focus { border-color:var(--accent); }
         <span class="file-count" id="file-count"></span>
         <span id="used-models" style="font-size:10px;color:var(--text-secondary);"></span>
         <button class="btn-back-prog" onclick="showProgress()">📋 Ver proceso</button>
-        <button class="btn-tool" onclick="verifyProject()">🧪 Verificar</button>
+        <button class="btn-tool" onclick="verifyProject()">🧪 Verificar con 14B</button>
+        <button class="btn-tool" onclick="autoFixProject()">🔧 Auto-fix con 14B</button>
         <button class="btn-tool" onclick="exportProject()">💾 Exportar carpeta</button>
         <button class="btn-tool" onclick="regenerateCurrentFile()">♻ Regenerar archivo</button>
         <button class="btn-sel-dl" id="btn-sel-dl" onclick="downloadSelected()">☑ Descargar selección</button>
@@ -1016,19 +1017,147 @@ function showVerification(data) {
     issues.slice(0, 12).map(i => `<div>${esc(i.severity)} · ${esc(i.path || 'proyecto')} · ${esc(i.message)}</div>`).join('');
 }
 
+async function autoFixProject() {
+  if (!genFiles.length) return showErr('No hay proyecto para reparar.');
+  const btn = document.querySelector('[onclick="autoFixProject()"]');
+  const oldText = btn.textContent;
+  btn.textContent = '⏳ Reparando con 14B...';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/generador/auto-fix', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        project_name: projName, 
+        prompt: $('prompt').value,
+        language: $('sel-lang').value,
+        stack: '',
+        options: collectOptions(),
+        files: genFiles 
+      }),
+    });
+    if (!r.ok) throw new Error((await r.json()).detail || 'Error');
+    const result = await r.json();
+    
+    // Actualizar archivos con los corregidos
+    if (result.files && result.files.length) {
+      genFiles = result.files.map((f, i) => safeFileRecord(f, i));
+      // Re-renderizar resultados
+      renderResults({ project_name: projName, files: genFiles });
+    }
+    
+    // Mostrar resultado de la verificacion final
+    if (result.verification) {
+      showVerification(result.verification);
+    }
+    
+    showErr(result.message || 'Auto-fix completado.');
+    setTimeout(hideErr, 3000);
+  } catch (e) {
+    showErr('Error en auto-fix: ' + e.message);
+  } finally {
+    btn.textContent = oldText;
+    btn.disabled = false;
+  }
+}
+
 async function verifyProject() {
   if (!genFiles.length) return showErr('No hay proyecto para verificar.');
+  const btn = document.querySelector('[onclick="verifyProject()"]');
+  const oldText = btn.textContent;
+  btn.textContent = '⏳ 14B pensando...';
+  btn.disabled = true;
   try {
-    const r = await fetch('/api/generador/verificar', {
+    // Mostrar panel de progreso para la verificacion
+    showView('progress');
+    const progBody = $('prog-body');
+    progBody.replaceChildren();
+    $('prog-title').textContent = '🔍 Verificando con 14B...';
+    $('prog-phase').textContent = 'Verificación';
+    setProgress(10);
+    
+    const r = await fetch('/api/generador/verificar-stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ project_name: projName, files: genFiles }),
     });
     if (!r.ok) throw new Error((await r.json()).detail || 'Error');
-    showVerification(await r.json());
+    
+    if (!r.body) throw new Error('No streaming support');
+    
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let result = null;
+    
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const ev = JSON.parse(line);
+          if (ev.type === 'thinking_start') {
+            showThinkingBox(ev.msg);
+            setProgress(30);
+          } else if (ev.type === 'thinking_token') {
+            appendThinkingToken(ev.text);
+          } else if (ev.type === 'thinking_end') {
+            hideThinkingBox();
+            setProgress(80);
+          } else if (ev.type === 'verify_result') {
+            result = ev.data;
+          }
+        } catch(e) {}
+      }
+    }
+    
+    setProgress(100);
+    setTimeout(() => {
+      showView('results');
+      if (result) showVerification(result);
+      btn.textContent = oldText;
+      btn.disabled = false;
+    }, 500);
+    
   } catch (e) {
+    showView('results');
     showErr('Error verificando: ' + e.message);
+    btn.textContent = oldText;
+    btn.disabled = false;
   }
+}
+
+function showThinkingBox(msg) {
+  const body = $('prog-body');
+  const existing = document.getElementById('ev-thinking');
+  if (existing) existing.remove();
+  const el = document.createElement('div');
+  el.id = 'ev-thinking';
+  el.className = 'ev-thinking';
+  el.innerHTML = '<div class="thinking-label">🧠 ' + esc(msg || '14B pensando...') + '</div><pre class="thinking-tokens"></pre>';
+  body.appendChild(el);
+  body.scrollTop = body.scrollHeight;
+}
+
+function appendThinkingToken(text) {
+  const box = document.getElementById('ev-thinking');
+  if (!box) return;
+  const pre = box.querySelector('.thinking-tokens');
+  if (!pre) return;
+  pre.textContent += text;
+  if (pre.textContent.length > 1200) {
+    pre.textContent = '…' + pre.textContent.slice(-1100);
+  }
+  document.getElementById('prog-body').scrollTop = 99999;
+}
+
+function hideThinkingBox() {
+  const el = document.getElementById('ev-thinking');
+  if (el) el.remove();
 }
 
 async function exportProject() {

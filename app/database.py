@@ -600,6 +600,7 @@ PIONEER_LIMIT = 50
 PLAN_MAX  = "plan_max"
 PLAN_FREE = "free_limited"
 PLAN_ADMIN = "admin"
+PLAN_STUDENT = "plan_student"
 
 
 def _safe_alter(conn, table: str, column: str, definition: str) -> None:
@@ -861,6 +862,7 @@ MAX_DAILY_MESSAGES: dict[str, int] = {
     "plan_max": -1,
     "plan_free_limitado": 20,
     "free_limited": 20,
+    "plan_student": 50,
 }
 
 

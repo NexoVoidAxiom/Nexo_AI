@@ -5,33 +5,41 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>VOID AXIOM — Canal A2A</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg:          #080c10;
-  --bg2:         #0d1219;
-  --bg3:         #111820;
-  --border:      #1e2d3d;
-  --border2:     #243446;
-  --text:        #c8d8e8;
-  --dim:         #5a7a9a;
-  --accent:      #00d4ff;
-  --accent-dim:  #007a99;
-  --aerys:       #ffd700;
-  --aerys-dim:   #9a8200;
-  --system:      #3a4a5a;
-  --interrupt:   #ff6b35;
-  --reb:         #ff4757;
-  --arch:        #2fa8e0;
-  --coda:        #27ae60;
-  --font-mono:   'Share Tech Mono', monospace;
-  --font-ui:     'Rajdhani', sans-serif;
+  /* ── Paleta unificada con el resto del proyecto ── */
+  --bg:          #0d1117;
+  --bg2:         #161b22;
+  --bg3:         #21262d;
+  --border:      #30363d;
+  --border2:     #444c56;
+  --text:        #c9d1d9;
+  --dim:         #8b949e;
+  --accent:      #58a6ff;
+  --accent-dim:  #1f6feb;
+  --green:       #3fb950;
+  --orange:      #d29922;
+  --red:         #f85149;
+  --purple:      #bc8cff;
+  /* ── Aliases para compatibilidad con el layout A2A ── */
+  --aerys:       #e3b341;
+  --aerys-dim:   #9e7a0f;
+  --system:      #444c56;
+  --interrupt:   #d29922;
+  --reb:         #f85149;
+  --arch:        #58a6ff;
+  --coda:        #3fb950;
+  --font-mono:   'JetBrains Mono', 'IBM Plex Mono', monospace;
+  --font-ui:     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-code:   'IBM Plex Mono', monospace;
-  --glow-reb:    0 0 12px rgba(255,71,87,0.4);
-  --glow-arch:   0 0 12px rgba(47,168,224,0.4);
-  --glow-coda:   0 0 12px rgba(39,174,96,0.4);
-  --glow-aerys:  0 0 16px rgba(255,215,0,0.5);
-  --glow-accent: 0 0 12px rgba(0,212,255,0.3);
+  --glow-reb:    0 0 10px rgba(248,81,73,0.35);
+  --glow-arch:   0 0 10px rgba(88,166,255,0.35);
+  --glow-coda:   0 0 10px rgba(63,185,80,0.35);
+  --glow-aerys:  0 0 12px rgba(227,179,65,0.4);
+  --glow-accent: 0 0 10px rgba(88,166,255,0.25);
+  --radius: 8px;
+  --radius-lg: 12px;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -41,6 +49,7 @@ html, body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-ui);
+  font-size: 14px;
   overflow: hidden;
 }
 

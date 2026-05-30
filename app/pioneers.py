@@ -52,6 +52,7 @@ try:
         is_plan_max,
         PLAN_MAX,
         PLAN_FREE,
+        PLAN_STUDENT,
         PIONEER_LIMIT,
     )
     DB_AVAILABLE = True
@@ -60,6 +61,7 @@ except ImportError:
     DB_AVAILABLE = False
     PLAN_MAX     = "plan_max"
     PLAN_FREE    = "plan_free_limitado"
+    PLAN_STUDENT = "plan_student"
     PIONEER_LIMIT = 50
 
 log = logging.getLogger("pioneers")
@@ -148,6 +150,17 @@ PLAN_LIMITS = {
         "can_use_agents":       True,
         "api_access":           True,
         "description":          "Plan Tester — Acceso completo, 35k contexto.",
+    },
+    PLAN_STUDENT: {
+        "messages_per_day":     50,
+        "max_file_size_mb":     20,
+        "models_allowed":       ["fast", "coder"],
+        "gpu_priority":         "medium",
+        "context_tokens":       30000,
+        "can_upload_files":     True,
+        "can_use_agents":       True,
+        "api_access":           True,
+        "description":          "🎓 Plan Estudiante — 50 mensajes/día, 30k contexto, A2A agentes, subida archivos.",
     },
 }
 

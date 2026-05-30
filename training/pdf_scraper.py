@@ -374,10 +374,44 @@ def download_pdf(
         log.info(f"  ✗ Filtrado: no parece contener código")
         return False
 
+    # Guardar con nombre seguro
+    _FALLBACK_DIR = Path("./knowledge_base_fallback")
     dest_path.parent.mkdir(parents=True, exist_ok=True)
-    dest_path.write_bytes(data)
-    db.record(url, dest_path.name, dest_path.parent.name,
-              sha, len(data)/1024, category, language)
+    safe_name = dest_path.name
+    if len(safe_name) > 200:
+        stem = dest_path.stem
+        ext = dest_path.suffix
+        safe_name = stem[:200 - len(ext)] + ext
+        dest_path = dest_path.parent / safe_name
+    try:
+        dest_path.write_bytes(data)
+    except (PermissionError, OSError) as e:
+        log.warning(f"  ⚠ Error escribiendo en {dest_path.parent} (sin permisos)")
+        # Fallback: intentar en la carpeta local del proyecto
+        fallback_path = _FALLBACK_DIR / dest_path.parent.name / safe_name
+        fallback_path.parent.mkdir(parents=True, exist_ok=True)
+        log.warning(f"     Intentando fallback local: {fallback_path}")
+        try:
+            fallback_path.write_bytes(data)
+            log.info(f"  ✓ OK! Guardado en fallback local: {fallback_path} ({size_mb:.1f} MB)")
+            try:
+                db.record(url, fallback_path.name, fallback_path.parent.parent.name,
+                          sha, len(data)/1024, category, language)
+            except Exception:
+                pass
+            return True
+        except (PermissionError, OSError) as e2:
+            log.warning(f"     ✗ Fallback también falló: {e2}")
+            try:
+                db.fail(url, "write_error_permission")
+            except Exception:
+                pass
+            return False
+    try:
+        db.record(url, dest_path.name, dest_path.parent.name,
+                  sha, len(data)/1024, category, language)
+    except Exception:
+        pass  # Si la DB falla, el PDF ya se guardó al menos
     log.info(f"  ✓ OK! Guardado ({size_mb:.1f} MB) — {language}")
     return True
 
